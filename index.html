@@ -98,6 +98,31 @@
           },
         }));
 
+        Alpine.data('pdsCheck', pds => ({
+          loading: false,
+          error: null,
+          status: null,
+
+          async init() {
+            this.loading = true;
+            this.error = null;
+            this.status = null;
+            let query = window.SimpleQuery(pds);
+            try {
+              await query('com.atproto.server.describeServer');
+              this.status = 'online';
+            } catch (e) {
+              if (window.isXrpcErr(e)) {
+                this.error = e.error;
+              } else {
+                this.error = 'Failed to reach (see console)';
+                console.error(e);
+              }
+            }
+            this.loading = false;
+          }
+        }))
+
         Alpine.data('relayCheckHost', (pds, relay) => ({
           loading: false,
           error: null,
@@ -113,7 +138,7 @@
             this.loading = true;
             this.error = null;
             this.status = null;
-            let query = window.SimpleQuery(`https://${relay.hostname}`);
+            const query = window.SimpleQuery(`https://${relay.hostname}`);
             const hostname = pds.split('://')[1];
             let data;
             try {
@@ -207,7 +232,15 @@
               <h2 class="card-title">
                  <span class="badge badge-secondary">PDS</span>
                  <span x-text="pds"></span>
-               </h2>
+              </h2>
+
+              <h3 class="text-lg">Server</h3>
+              <div x-data="pdsCheck(pds)">
+                <div
+                  x-show="status !== null"
+                  x-text="`status: ${status}`"
+                ></div>
+              </div>
 
               <h3 class="text-lg">Relay host status</h3>
               <div class="overflow-x-auto">
