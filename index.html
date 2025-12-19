@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width"/>
+    <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
+    <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
+    <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
+
+    <script type="module">
+      import { Client, ClientResponseError, ok, simpleFetchHandler } from 'https://esm.sh/@atcute/client@4.1.1';
+      window.SimpleQuery = service => {
+        const client = new Client({ handler: simpleFetchHandler({ service }) });
+        return (...args) => ok(client.get(...args));
+      };
+      window.SimpleProc = service => {
+        const client = new Client({ handler: simpleFetchHandler({ service }) });
+        return (...args) => ok(client.post(...args));
+      };
+      window.isXrpcErr = e => e instanceof ClientResponseError;
+      window.slingshot = window.SimpleQuery('https://slingshot.microcosm.blue');
+      window.relays = [
+        {
+          name: 'Bluesky production',
+          hostname: 'bsky.network',
+        },
+        {
+          name: 'Bluesky sync1.1 East',
+          hostname: 'relay1.us-east.bsky.network',
+        },
+        {
+          name: 'Bluesky sync1.1 West',
+          hostname: 'relay1.us-west.bsky.network',
+        },
+        {
+          name: 'Blacksky',
+          hostname: 'atproto.africa',
+        },
+        {
+          name: 'Microcosm Montreal',
+          hostname: 'relay.fire.hose.cam',
+        },
+        {
+          name: 'Microcosm France',
+          hostname: 'relay3.fr.hose.cam',
+        },
+      ];
+    </script>
+
+    <script>
+      document.addEventListener('alpine:init', () => {
+        Alpine.data('debug', () => ({
+          // form input
+          identifier: '',
+
+          // state
+          identifierLoading: false,
+          identifierError: null,
+
+          // stuff to check
+          pds: null,
+          did: null,
+          handle: null,
+
+          async diagnose() {
+            this.identifierLoading = true;
+            this.identifierError = null;
+            this.pds = null;
+            this.did = null;
+            if (this.identifier.startsWith('https://')) {
+              this.pds = this.identifier;
+            } else {
+              if (this.identifier.startsWith('at://')) {
+                this.identifier = this.identifier.slice('at://'.length);
+              }
+              if (this.identifier.startsWith('did:')) {
+                this.did = this.identifier;
+              } else {
+                let data;
+                try {
+                  data = await window.slingshot('com.bad-example.identity.resolveMiniDoc', {
+                    params: { identifier: this.identifier },
+                  });
+                  this.did = data.did;
+                  this.pds = data.pds;
+                } catch (e) {
+                  if (window.isXrpcErr(e)) {
+                    this.identifierError = e.error;
+                    if (e.message) this.description += ` ${e.description}`;
+                  } else {
+                    this.identifierError = 'Failed to resolve identifier, see console for error.';
+                    console.error(e);
+                  }
+                }
+              }
+            }
+            this.identifierLoading = false;
+          },
+        }));
+
+        Alpine.data('relayCheckHost', (pds, relay) => ({
+          loading: false,
+          error: null,
+          status: null,
+          reqCrawlStatus: null,
+          reqCrawlError: null,
+
+          async init() {
+            await this.check();
+          },
+
+          async check() {
+            this.loading = true;
+            this.error = null;
+            this.status = null;
+            let query = window.SimpleQuery(`https://${relay.hostname}`);
+            const hostname = pds.split('://')[1];
+            let data;
+            try {
+              data = await query('com.atproto.sync.getHostStatus', {
+                params: { hostname },
+              });
+              this.status = data.status;
+            } catch(e) {
+              if (window.isXrpcErr(e)) {
+                this.error = e.error;
+              } else {
+                this.error = 'Failed to check (see console)';
+                console.error(e);
+              }
+            }
+            this.loading = false;
+            this.reqCrawlStatus = null;
+            this.reqCrawlError = null;
+          },
+
+          async requestCrawl() {
+            this.reqCrawlStatus = "loading";
+            const proc = window.SimpleProc(`https://${relay.hostname}`);
+            const hostname = pds.split('://')[1];
+            let data;
+            try {
+              data = await proc('com.atproto.sync.requestCrawl', {
+                input: { hostname },
+              });
+            } catch (e) {
+              if (window.isXrpcErr(e)) {
+                this.reqCrawlError = e.error;
+              } else {
+                this.reqCrawlError = 'failed (see console)';
+                console.error(e);
+              }
+            }
+            this.reqCrawlStatus = "done";
+          },
+        }))
+      })
+    </script>
+  </head>
+  <body x-data="debug">
+    <div class="hero bg-base-200">
+      <div class="hero-content flex-col">
+        <h1>PDS Debugger</h1>
+
+        <p>Work in progress!</p>
+        <details class="text-xs">
+          <summary>Would be nice</summary>
+          <ul>
+            <li>anything that actually works</li>
+            <li>firehose listener for missing pds events</li>
+            <li>jetstream listener for missing pds events</li>
+            <li>check relays for account status</li>
+            <li>check relays for pds state</li>
+            <li>plc: check old pds hosts for active account state</li>
+          </ul>
+        </details>
+        <details class="text-xs">
+          <summary>Limitations</summary>
+          <ul>
+            <li>it's all client-side</li>
+          </ul>
+        </details>
+
+        <div class="card bg-base-100 w-full max-w-sm shrink-0 shadow-2xl">
+          <div class="card-body">
+            <form @submit.prevent="await diagnose()">
+              <label>
+                Enter an atproto handle, DID, or HTTPS PDS URL
+                <input
+                  class="input"
+                  x-model="identifier"
+                  :disabled="identifierLoading"
+                  autofocus
+                />
+              </label>
+            </form>
+          </div>
+        </div>
+
+        <template x-if="identifierError">
+          <p>uh oh: <span x-text="identifierError"></span></p>
+        </template>
+
+        <template x-if="pds != null">
+          <div class="card bg-base-100 w-full max-w-lg shrink-0 shadow-2xl">
+            <div class="card-body">
+              <h2 class="card-title">
+                 <span class="badge badge-secondary">PDS</span>
+                 <span x-text="pds"></span>
+               </h2>
+
+              <h3 class="text-lg">Relay host status</h3>
+              <div class="overflow-x-auto">
+                <table class="table table-xs">
+                  <tbody>
+                    <template x-for="relay in window.relays">
+                      <tr x-data="relayCheckHost(pds, relay)">
+                        <td x-text="relay.name" class="text-sm"></td>
+                        <td>
+                          <template x-if="loading">
+                            <em>loading&hellip;</em>
+                          </template>
+                          <template x-if="error">
+                            <span
+                              x-text="error"
+                              class="text-xs text-warning"
+                            ></span>
+                          </template>
+                          <template x-if="status">
+                            <span
+                              x-text="status"
+                              class="badge badge-sm"
+                              :class="status === 'active' && 'badge-soft badge-success'"
+                            ></span>
+                          </template>
+                        </td>
+                        <td>
+                          <div x-show="status !== 'active'">
+                            <button
+                              x-show="reqCrawlStatus !== 'done'"
+                              class="btn btn-xs btn-ghost whitespace-nowrap"
+                              :disabled="reqCrawlStatus === 'loading'"
+                              @click="requestCrawl"
+                            >
+                              request crawl
+                            </button>
+                            <span
+                              x-show="reqCrawlError !== null"
+                              x-text="reqCrawlError"
+                              class="text-xs text-warning"
+                            ></span>
+                            <button
+                              x-show="reqCrawlError === null && reqCrawlStatus === 'done'"
+                              class="btn btn-xs btn-soft btn-primary whitespace-nowrap"
+                              @click="check"
+                            >
+                              refresh
+                            </button>
+                          </div>
+                        </td>
+                      </tr>
+                    </template>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        </template>
+
+        <template x-if="did != null">
+          <div class="card bg-base-100 w-full max-w-sm shrink-0 shadow-2xl">
+            <div class="card-body">
+              <p x-text="`DID: ${did}`"></p>
+            </div>
+          </div>
+        </template>
+      </div>
+    </div>
+  </body>
+</html>
