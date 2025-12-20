@@ -78,6 +78,11 @@
           did: null,
           handle: null,
 
+          async goto(identifier) {
+            this.identifier = identifier;
+            await this.diagnose();
+          },
+
           async diagnose() {
             this.identifierLoading = true;
             this.identifierError = null;
@@ -139,6 +144,8 @@
           loadingDesc: false,
           error: null,
           description: null,
+          accounts: [],
+          accountsComplete: false,
 
           async init() {
             await this.update(pds);
@@ -148,9 +155,25 @@
             this.loadingDesc = true;
             this.error = null;
             this.description = null;
+            this.accounts = [];
             let query = window.SimpleQuery(pds);
             try {
               this.description = await query('com.atproto.server.describeServer');
+            } catch (e) {
+              if (window.isXrpcErr(e)) {
+                this.error = e.error;
+              } else {
+                this.error = 'Failed to reach (see console)';
+                console.error(e);
+              }
+            }
+            let accountsRes;
+            try {
+              accountsRes = await query('com.atproto.sync.listRepos', {
+                params: { limit: 7 },
+              });
+              this.accounts = accountsRes.repos;
+              this.accountsComplete == !accountsRes.cursor;
             } catch (e) {
               if (window.isXrpcErr(e)) {
                 this.error = e.error;
@@ -328,6 +351,47 @@
                             x-text="!description.inviteCodeRequired"
                           ></td>
                         </tr>
+                      </tbody>
+                    </table>
+                    <h4 class="font-bold">
+                      Accounts
+                    </h4>
+                    <table class="table table-xs">
+                      <tbody>
+                        <template x-for="account in accounts">
+                          <tr>
+                            <td>
+                              <code>
+                                <a
+                                  href="#"
+                                  class="link"
+                                  x-text="account.did"
+                                  @click.prevent="goto(account.did)"
+                                ></a>
+                              </code>
+                            </td>
+                            <td>
+                              <span
+                                x-show="account.active"
+                                class="badge badge-sm badge-soft badge-success"
+                              >
+                                active
+                              </span>
+                              <span
+                                x-show="!account.active"
+                                x-text="account.status"
+                                class="badge badge-sm badge-soft badge-warning"
+                              ></span>
+                            </td>
+                          </tr>
+                        </template>
+                        <template x-if="!accountsComplete">
+                          <tr>
+                            <td colspan="2" class="text-sm text-warning-content">
+                              (account list clipped)
+                            </td>
+                          </tr>
+                        </template>
                       </tbody>
                     </table>
                   </div>
