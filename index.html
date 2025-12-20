@@ -8,7 +8,17 @@
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
 
     <script type="module">
-      import { Client, ClientResponseError, ok, simpleFetchHandler } from 'https://esm.sh/@atcute/client@4.1.1';
+      import {
+        Client,
+        ClientResponseError,
+        ok,
+        simpleFetchHandler,
+      } from 'https://esm.sh/@atcute/client@4.1.1';
+      import {
+        DohJsonHandleResolver,
+        WellKnownHandleResolver,
+      } from 'https://esm.sh/@atcute/identity-resolver@1.2.0';
+
       window.SimpleQuery = service => {
         const client = new Client({ handler: simpleFetchHandler({ service }) });
         return (...args) => ok(client.get(...args));
@@ -18,6 +28,12 @@
         return (...args) => ok(client.post(...args));
       };
       window.isXrpcErr = e => e instanceof ClientResponseError;
+
+      window.dnsResolver = new DohJsonHandleResolver({
+        dohUrl: 'https://mozilla.cloudflare-dns.com/dns-query',
+      });
+      window.httpResolver = new WellKnownHandleResolver();
+
       window.slingshot = window.SimpleQuery('https://slingshot.microcosm.blue');
       window.relays = [
         {
@@ -67,6 +83,7 @@
             this.identifierError = null;
             this.pds = null;
             this.did = null;
+            this.handle = null;
             if (this.identifier.startsWith('https://')) {
               this.pds = this.identifier;
             } else {
@@ -76,6 +93,7 @@
               if (this.identifier.startsWith('did:')) {
                 this.did = this.identifier;
               } else {
+                this.handle = this.identifier;
                 let data;
                 try {
                   data = await window.slingshot('com.bad-example.identity.resolveMiniDoc', {
@@ -101,16 +119,15 @@
         Alpine.data('pdsCheck', pds => ({
           loading: false,
           error: null,
-          status: null,
+          description: null,
 
           async init() {
             this.loading = true;
             this.error = null;
-            this.status = null;
+            this.description = null;
             let query = window.SimpleQuery(pds);
             try {
-              await query('com.atproto.server.describeServer');
-              this.status = 'online';
+              this.description = await query('com.atproto.server.describeServer');
             } catch (e) {
               if (window.isXrpcErr(e)) {
                 this.error = e.error;
@@ -121,7 +138,7 @@
             }
             this.loading = false;
           }
-        }))
+        }));
 
         Alpine.data('relayCheckHost', (pds, relay) => ({
           loading: false,
@@ -178,7 +195,37 @@
             }
             this.reqCrawlStatus = "done";
           },
-        }))
+        }));
+
+        Alpine.data('checkHandle', handle => ({
+          loading: false,
+          dnsDid: null,
+          dnsErr: null,
+          httpDid: null,
+          httpErr: null,
+
+          async init() {
+            await this.updateHandle(handle);
+          },
+          async updateHandle(handle) {
+            this.loading = true;
+            this.dnsDid = null;
+            this.dnsErr = null;
+            this.httpDid = null;
+            this.httpErr = null;
+            try {
+              this.dnsDid = await window.dnsResolver.resolve(handle);
+            } catch (e) {
+              this.dnsErr = e.name;
+            }
+            try {
+              this.httpDid = await window.httpResolver.resolve(handle);
+            } catch (e) {
+              this.httpErr = e.name;
+            }
+            this.loading = false;
+          },
+        }));
       })
     </script>
   </head>
@@ -234,12 +281,29 @@
                  <span x-text="pds"></span>
               </h2>
 
-              <h3 class="text-lg">Server</h3>
               <div x-data="pdsCheck(pds)">
-                <div
-                  x-show="status !== null"
-                  x-text="`status: ${status}`"
-                ></div>
+                <h3 class="text-lg">
+                  Server
+                  <span
+                    x-show="description !== null"
+                    class="badge badge-sm badge-soft badge-success"
+                  >online</span>
+                </h3>
+                <template x-if="description !== null">
+                  <div class="overflow-x-auto">
+                    <table class="table table-xs">
+                      <tbody>
+                        <tr>
+                          <td class="text-sm">Open registration</td>
+                          <td
+                            class="text-sm"
+                            x-text="!description.inviteCodeRequired"
+                          ></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </template>
               </div>
 
               <h3 class="text-lg">Relay host status</h3>
@@ -301,9 +365,61 @@
         </template>
 
         <template x-if="did != null">
-          <div class="card bg-base-100 w-full max-w-sm shrink-0 shadow-2xl">
+          <div class="card bg-base-100 w-full max-w-lg shrink-0 shadow-2xl">
             <div class="card-body">
-              <p x-text="`DID: ${did}`"></p>
+              <h2 class="card-title">
+                <span class="badge badge-secondary">DID</span>
+                <code x-text="did"></code>
+              </h2>
+              <p>(wip)</p>
+            </div>
+          </div>
+        </template>
+
+        <template x-if="handle != null">
+          <div class="card bg-base-100 w-full max-w-lg shrink-0 shadow-2xl">
+            <div
+              x-data="checkHandle(handle)"
+              x-init="$watch('handle', h => updateHandle(h))"
+              class="card-body"
+            >
+              <h2 class="card-title">
+                <span class="badge badge-secondary">Handle</span>
+                <span x-text="handle"></span>
+              </h2>
+              <p x-show="loading" class="text-i">Loading&hellip;</p>
+              <div x-show="!loading" class="overflow-x-auto">
+                <table class="table table-xs">
+                  <tbody>
+                    <tr>
+                      <td class="text-sm">DNS</td>
+                      <td class="text-sm">
+                        <code x-text="dnsDid"></code>
+                      </td>
+                      <td>
+                        <div
+                          class="badge badge-sm badge-soft badge-neutral"
+                          x-show="dnsErr !== null"
+                          x-text="dnsErr"
+                        ></div>
+                      </td>
+                    </tr>
+                    <tr>
+                      <td class="text-sm">Http</td>
+                      <td class="text-sm">
+                        <code x-text="httpDid"></code>
+                      </td>
+                      <td>
+                        <div
+                          class="badge badge-sm badge-soft badge-neutral"
+                          x-show="httpErr !== null"
+                          x-text="httpErr"
+                        ></div>
+                      </td>
+                    </tr>
+                  </tbody>
+                </table>
+              </div>
             </div>
           </div>
         </template>
