@@ -84,7 +84,10 @@
             this.pds = null;
             this.did = null;
             this.handle = null;
-            if (this.identifier.startsWith('https://')) {
+            this.identifier = this.identifier.trim();
+            if (this.identifier === '') {
+              // do nothing
+            } else if (this.identifier.startsWith('https://')) {
               this.pds = this.identifier;
             } else {
               if (this.identifier.startsWith('at://')) {
@@ -92,6 +95,22 @@
               }
               if (this.identifier.startsWith('did:')) {
                 this.did = this.identifier;
+                let data;
+                try {
+                  data = await window.slingshot('com.bad-example.identity.resolveMiniDoc', {
+                    params: { identifier: this.identifier },
+                  });
+                  this.pds = data.pds;
+                  this.handle = data.handle;
+                } catch (e) {
+                  if (window.isXrpcErr(e)) {
+                    this.identifierError = e.error;
+                    if (e.message) this.description += ` ${e.description}`;
+                  } else {
+                    this.identifierError = 'Failed to resolve identifier, see console for error.';
+                    console.error(e);
+                  }
+                }
               } else {
                 this.handle = this.identifier;
                 let data;
@@ -117,12 +136,16 @@
         }));
 
         Alpine.data('pdsCheck', pds => ({
-          loading: false,
+          loadingDesc: false,
           error: null,
           description: null,
 
           async init() {
-            this.loading = true;
+            await this.update(pds);
+          },
+
+          async update(pds) {
+            this.loadingDesc = true;
             this.error = null;
             this.description = null;
             let query = window.SimpleQuery(pds);
@@ -136,8 +159,8 @@
                 console.error(e);
               }
             }
-            this.loading = false;
-          }
+            this.loadingDesc = false;
+          },
         }));
 
         Alpine.data('relayCheckHost', (pds, relay) => ({
@@ -148,10 +171,10 @@
           reqCrawlError: null,
 
           async init() {
-            await this.check();
+            await this.check(pds, relay);
           },
 
-          async check() {
+          async check(pds, relay) {
             this.loading = true;
             this.error = null;
             this.status = null;
@@ -176,7 +199,7 @@
             this.reqCrawlError = null;
           },
 
-          async requestCrawl() {
+          async requestCrawl(pds, relay) {
             this.reqCrawlStatus = "loading";
             const proc = window.SimpleProc(`https://${relay.hostname}`);
             const hostname = pds.split('://')[1];
@@ -281,7 +304,10 @@
                  <span x-text="pds"></span>
               </h2>
 
-              <div x-data="pdsCheck(pds)">
+              <div
+                x-data="pdsCheck(pds)"
+                x-init="$watch('pds', v => update(v))"
+              >
                 <h3 class="text-lg">
                   Server
                   <span
@@ -289,6 +315,8 @@
                     class="badge badge-sm badge-soft badge-success"
                   >online</span>
                 </h3>
+                <p x-show="loadingDesc">Loading&hellip;</p>
+                <p x-show="error" class="text-warning" x-text="error"></p>
                 <template x-if="description !== null">
                   <div class="overflow-x-auto">
                     <table class="table table-xs">
@@ -311,7 +339,10 @@
                 <table class="table table-xs">
                   <tbody>
                     <template x-for="relay in window.relays">
-                      <tr x-data="relayCheckHost(pds, relay)">
+                      <tr
+                        x-data="relayCheckHost(pds, relay)"
+                        x-init="$watch('pds', pds => check(pds, relay))"
+                      >
                         <td x-text="relay.name" class="text-sm"></td>
                         <td>
                           <template x-if="loading">
@@ -337,7 +368,7 @@
                               x-show="reqCrawlStatus !== 'done'"
                               class="btn btn-xs btn-ghost whitespace-nowrap"
                               :disabled="reqCrawlStatus === 'loading'"
-                              @click="requestCrawl"
+                              @click="requestCrawl(pds, relay)"
                             >
                               request crawl
                             </button>
