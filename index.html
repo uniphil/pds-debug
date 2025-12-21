@@ -390,6 +390,84 @@
             this.loading = false;
           },
         }));
+
+        Alpine.data('pdsHistory', (did, currentPds) => ({
+          loading: false,
+          error: null,
+          history: [],
+
+          async init() {
+            this.loading = true;
+            this.error = null;
+            this.history = [];
+            try {
+              const res = await fetch(`https://plc.directory/${did}/log/audit`);
+              if (res.ok) {
+                const log = await res.json();
+                const seen = new Set();
+                seen.add(currentPds);
+                for (op of log) {
+                  const opPds = op.operation.services.atproto_pds.endpoint;
+                  if (seen.has(opPds)) continue;
+                  seen.add(opPds);
+                  this.history.push({
+                    pds: opPds,
+                    date: op.createdAt,
+                  });
+                }
+                this.history.reverse();
+              } else {
+                this.error = `${res.status}: ${await res.text()}`;
+              }
+            } catch (e) {
+              this.error = 'failed to get history';
+              console.error(e);
+            }
+            this.loading = false;
+          },
+        }));
+
+        Alpine.data('handleHistory', (did, currentHandle) => ({
+          loading: false,
+          error: null,
+          history: [],
+
+          async init() {
+            this.loading = true;
+            this.error = null;
+            this.history = [];
+            try {
+              const res = await fetch(`https://plc.directory/${did}/log/audit`);
+              if (res.ok) {
+                const log = await res.json();
+                const seen = new Set();
+                seen.add(currentHandle);
+                for (op of log) {
+                  let opHandle = null;
+                  for (aka of op.operation.alsoKnownAs) {
+                    if (aka.startsWith("at://")) {
+                      opHandle = aka.slice("at://".length);
+                      break;
+                    }
+                  }
+                  if (seen.has(opHandle)) continue;
+                  seen.add(opHandle);
+                  this.history.push({
+                    handle: opHandle,
+                    date: op.createdAt,
+                  });
+                }
+                this.history.reverse();
+              } else {
+                this.error = `${res.status}: ${await res.text()}`;
+              }
+            } catch (e) {
+              this.error = 'failed to get history';
+              console.error(e);
+            }
+            this.loading = false;
+          },
+        }));
       })
     </script>
   </head>
@@ -449,7 +527,7 @@
                 x-data="pdsCheck(pds)"
                 x-init="$watch('pds', v => update(v))"
               >
-                <h3 class="text-lg">
+                <h3 class="text-lg mt-3">
                   Server
                   <span
                     x-show="description !== null"
@@ -544,7 +622,7 @@
                 </template>
               </div>
 
-              <h3 class="text-lg">Relay host status</h3>
+              <h3 class="text-lg mt-3">Relay host status</h3>
               <div class="overflow-x-auto overflow-y-auto max-h-33">
                 <table class="table table-xs">
                   <tbody>
@@ -614,7 +692,7 @@
               </h2>
               <template x-if="pds != null">
                 <div x-data="didRepoState(did, pds)">
-                  <h3 class="text-lg">
+                  <h3 class="text-lg mt-3">
                     Repo
                     <span
                       x-show="state && state.active"
@@ -645,7 +723,7 @@
                     </table>
                   </div>
 
-                  <h3 class="text-lg">
+                  <h3 class="text-lg mt-3">
                     Relay repo status
                   </h3>
                   <div class="overflow-x-auto overflow-y-auto max-h-33">
@@ -697,13 +775,70 @@
                       </tbody>
                     </table>
                   </div>
+
+                  <template x-if="did.startsWith('did:plc:')">
+                    <div x-data="pdsHistory(did, pds)">
+                      <h3 class="text-lg mt-3">
+                        PLC PDS history
+                      </h3>
+                      <div class="overflow-x-auto">
+                        <table class="table table-xs">
+                          <tbody>
+                            <template x-if="loading">
+                              <tr>
+                                <td>Loading&hellip;</td>
+                              </tr>
+                            </template>
+                            <template x-if="error">
+                              <tr>
+                                <td>Error: <span x-text="error"></span></td>
+                              </tr>
+                            </template>
+                            <template x-if="!loading && !error && history.length === 0">
+                              <tr>
+                                <td class="text-sm">
+                                  <em>no previous PDS</em>
+                                </td>
+                              </tr>
+                            </template>
+                            <template x-for="event in history">
+                              <tr x-data="didRepoState(did, event.pds)">
+                                <td>
+                                  <code x-text="event.date.split('T')[0]"></code>
+                                </td>
+                                <td>
+                                  <a
+                                    href="#"
+                                    class="link"
+                                    @click.prevent="goto(event.pds)"
+                                    x-text="event.pds"
+                                  ></a>
+                                </td>
+                                <td>
+                                  <span
+                                    x-show="state && !state.active"
+                                    x-text="state && state.status"
+                                    class="badge badge-sm badge-soft badge-success"
+                                  ></span>
+                                  <span
+                                    x-show="state && state.active"
+                                    class="badge badge-sm badge-soft badge-warning"
+                                  >active</span>
+                                </td>
+                              </tr>
+                            </template>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </template>
                 </div>
               </template>
             </div>
           </div>
         </template>
 
-        <template x-if="handle != null">
+        <template x-if="handle !== null">
           <div class="card bg-base-100 w-full max-w-lg shrink-0 shadow-2xl">
             <div
               x-data="checkHandle(handle)"
@@ -714,6 +849,10 @@
                 <span class="badge badge-secondary">Handle</span>
                 <span x-text="handle"></span>
               </h2>
+
+              <h3 class="text-lg mt-3">
+                Resolution
+              </h3>
               <p x-show="loading" class="text-i">Loading&hellip;</p>
               <div x-show="!loading" class="overflow-x-auto">
                 <table class="table table-xs">
@@ -747,6 +886,56 @@
                   </tbody>
                 </table>
               </div>
+
+              <template x-if="did !== null && did.startsWith('did:plc:')">
+
+                <div x-data="handleHistory(did, handle)">
+                  <h3 class="text-lg mt-3">
+                    PLC handle history
+                  </h3>
+                  <div class="overflow-x-auto">
+                    <table class="table table-xs">
+                      <tbody>
+                        <template x-if="loading">
+                          <tr>
+                            <td>Loading&hellip;</td>
+                          </tr>
+                        </template>
+                        <template x-if="error">
+                          <tr>
+                            <td>Error: <span x-text="error"></span></td>
+                          </tr>
+                        </template>
+                        <template x-if="!loading && !error && history.length === 0">
+                          <tr>
+                            <td class="text-sm">
+                              <em>no previous handle</em>
+                            </td>
+                          </tr>
+                        </template>
+                        <template x-for="event in history">
+                          <tr>
+                            <td>
+                              <code x-text="event.date.split('T')[0]"></code>
+                            </td>
+                            <td>
+                              <a
+                                href="#"
+                                class="link"
+                                @click.prevent="goto(event.handle)"
+                                x-text="event.handle"
+                              ></a>
+                            </td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+
+
+              </template>
             </div>
           </div>
         </template>
