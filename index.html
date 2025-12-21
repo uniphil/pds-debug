@@ -3,6 +3,9 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width"/>
+    <title>ATProto PDS & account debugger</title>
+    <meta name="description" content="Quick diagnostics for PDS hosts, handles, relay connections, handles, DIDs, ..." />
+
     <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/intersect@3.x.x/dist/cdn.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
@@ -476,22 +479,19 @@
       <div class="hero-content flex-col">
         <h1>PDS Debugger</h1>
 
-        <p>Work in progress!</p>
+        <p class="text-sm">Work in progress!</p>
         <details class="text-xs">
-          <summary>Would be nice</summary>
-          <ul>
-            <li>anything that actually works</li>
-            <li>firehose listener for missing pds events</li>
-            <li>jetstream listener for missing pds events</li>
-            <li>check relays for account status</li>
-            <li>check relays for pds state</li>
-            <li>plc: check old pds hosts for active account state</li>
+          <summary>Future features</summary>
+          <ul class="list-disc pl-4">
+            <li>firehose & jetstream listeners</li>
           </ul>
         </details>
         <details class="text-xs">
           <summary>Limitations</summary>
-          <ul>
-            <li>it's all client-side</li>
+          <ul class="list-disc pl-4">
+            <li>The Bluesky production relay at <code>bsky.network</code> runs the old bgs implementation, and is missing many relay XRPC endpoints.</li>
+            <li>The Blacksky relay at <code>atproto.africa</code> runs an independent implementation, and is also missing many relay XRPC endpoints.</li>
+            <li>All diagnostics run in your browser, so servers that don't enable CORS (some PDS hosts, Upcloud's relay) will fail tests.</li>
           </ul>
         </details>
 
