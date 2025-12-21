@@ -38,10 +38,6 @@
       window.slingshot = window.SimpleQuery('https://slingshot.microcosm.blue');
       window.relays = [
         {
-          name: 'Bluesky production',
-          hostname: 'bsky.network',
-        },
-        {
           name: 'Bluesky sync1.1 East',
           hostname: 'relay1.us-east.bsky.network',
         },
@@ -50,16 +46,24 @@
           hostname: 'relay1.us-west.bsky.network',
         },
         {
-          name: 'Blacksky',
-          hostname: 'atproto.africa',
-        },
-        {
           name: 'Microcosm Montreal',
           hostname: 'relay.fire.hose.cam',
         },
         {
           name: 'Microcosm France',
           hostname: 'relay3.fr.hose.cam',
+        },
+        {
+          name: 'Bluesky prod (old)',
+          hostname: 'bsky.network',
+        },
+        {
+          name: 'Blacksky (partial xrpc)',
+          hostname: 'atproto.africa',
+        },
+        {
+          name: 'Upcloud (no CORS)',
+          hostname: 'relay.upcloud.world',
         },
       ];
     </script>
@@ -319,7 +323,73 @@
             }
             loading = false;
           }
-        }))
+        }));
+
+        Alpine.data('didRepoState', (did, pds) => ({
+          loading: false,
+          error: null,
+          state: null,
+
+          async init() {
+            await this.checkRepoState(did, pds);
+          },
+          async checkRepoState(did, pds) {
+            this.loading = true;
+            this.error = null;
+            this.state = null;
+
+            if (!did || !pds) {
+              this.loading = false;
+              return;
+            }
+            const query = window.SimpleQuery(pds);
+            try {
+              this.state = await query('com.atproto.sync.getRepoStatus', {
+                params: { did },
+              });
+            } catch (e) {
+              if (window.isXrpcErr(e)) {
+                this.error = e.error;
+              } else {
+                this.error = 'failed (see console)';
+                console.error(e);
+              }
+            }
+            this.loading = false;
+          },
+        }));
+
+        Alpine.data('relayCheckRepo', (did, relay) => ({
+          loading: false,
+          error: null,
+          status: null,
+
+          async init() {
+            await this.check(did, relay);
+          },
+
+          async check(did, relay) {
+            this.loading = true;
+            this.error = null;
+            this.status = null;
+
+            const query = window.SimpleQuery(`https://${relay.hostname}`);
+            try {
+              this.status = await query('com.atproto.sync.getRepoStatus', {
+                params: { did },
+              });
+            } catch(e) {
+              if (window.isXrpcErr(e)) {
+                this.error = e.error;
+              } else {
+                this.error = 'Failed to check (see console)';
+                console.error(e);
+              }
+            }
+
+            this.loading = false;
+          },
+        }));
       })
     </script>
   </head>
@@ -475,7 +545,7 @@
               </div>
 
               <h3 class="text-lg">Relay host status</h3>
-              <div class="overflow-x-auto">
+              <div class="overflow-x-auto overflow-y-auto max-h-33">
                 <table class="table table-xs">
                   <tbody>
                     <template x-for="relay in window.relays">
@@ -542,7 +612,93 @@
                 <span class="badge badge-secondary">DID</span>
                 <code x-text="did"></code>
               </h2>
-              <p>(wip)</p>
+              <template x-if="pds != null">
+                <div x-data="didRepoState(did, pds)">
+                  <h3 class="text-lg">
+                    Repo
+                    <span
+                      x-show="state && state.active"
+                      class="badge badge-sm badge-soft badge-success"
+                    >active</span>
+                  </h3>
+                  <div class="overflow-x-auto">
+                    <table class="table table-xs">
+                      <tbody>
+                        <tr>
+                          <td class="text-sm">
+                            Rev:
+                            <code x-text="state && state.rev"></code>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td class="text-sm">
+                            PDS:
+                            <a
+                              href="#"
+                              class="link"
+                              @click.prevent="goto(pds)"
+                              x-text="pds"
+                            ></a>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+
+                  <h3 class="text-lg">
+                    Relay repo status
+                  </h3>
+                  <div class="overflow-x-auto overflow-y-auto max-h-33">
+                    <table class="table table-xs">
+                      <tbody>
+                        <template x-for="relay in window.relays">
+                          <tr
+                            x-data="relayCheckRepo(did, relay)"
+                            x-init="$watch('pds', pds => check(did, relay))"
+                          >
+                            <td x-text="relay.name" class="text-sm"></td>
+                            <template x-if="loading">
+                              <td>
+                                <em>loading&hellip;</em>
+                              </td>
+                            </template>
+                            <template x-if="error">
+                              <td
+                                x-text="error"
+                                class="text-xs text-warning"
+                              ></td>
+                            </template>
+                            <template x-if="status">
+                              <td>
+                                <span
+                                  x-show="status.active"
+                                  class="badge badge-sm badge-soft badge-success"
+                                >
+                                  active
+                                </span>
+                                <span
+                                  x-show="!status.active"
+                                  x-text="status.status"
+                                  class="badge badge-sm badge-soft badge-warning"
+                                ></span>
+                              </td>
+                            </template>
+                            <template x-if="status">
+                              <td>
+                                <code
+                                  x-text="status.rev"
+                                  class="badge badge-sm badge-soft"
+                                  :class="status && state && (status.rev >= state.rev) ? 'badge-success' : 'badge-warning'"
+                                ></code>
+                              </td>
+                            </template>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </template>
             </div>
           </div>
         </template>
