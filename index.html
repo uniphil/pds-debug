@@ -3,6 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width"/>
+    <script defer src="https://cdn.jsdelivr.net/npm/@alpinejs/intersect@3.x.x/dist/cdn.min.js"></script>
     <script defer src="https://cdn.jsdelivr.net/npm/alpinejs@3.x.x/dist/cdn.min.js"></script>
     <link href="https://cdn.jsdelivr.net/npm/daisyui@5" rel="stylesheet" type="text/css"/>
     <script src="https://cdn.jsdelivr.net/npm/@tailwindcss/browser@4"></script>
@@ -146,6 +147,7 @@
           description: null,
           accounts: [],
           accountsComplete: false,
+          version: null,
 
           async init() {
             await this.update(pds);
@@ -156,6 +158,14 @@
             this.error = null;
             this.description = null;
             this.accounts = [];
+            this.accountsComplete = false;
+            this.version = null;
+
+            if (!pds) {
+              this.loadingDesc = false;
+              return;
+            }
+
             let query = window.SimpleQuery(pds);
             try {
               this.description = await query('com.atproto.server.describeServer');
@@ -167,10 +177,22 @@
                 console.error(e);
               }
             }
+            let health
+            try {
+              health = await query('_health');
+              this.version = health.version;
+            } catch (e) {
+              if (window.isXrpcErr(e)) {
+                this.error = e.error;
+              } else {
+                this.error = 'Failed to reach (see console)';
+                console.error(e);
+              }
+            }
             let accountsRes;
             try {
               accountsRes = await query('com.atproto.sync.listRepos', {
-                params: { limit: 7 },
+                params: { limit: 100 },
               });
               this.accounts = accountsRes.repos;
               this.accountsComplete == !accountsRes.cursor;
@@ -272,6 +294,32 @@
             this.loading = false;
           },
         }));
+
+        Alpine.data('didToHandle', did => ({
+          loading: false,
+          error: null,
+          handle: null,
+          async load() {
+            loading = true;
+            error = null;
+            handle = null;
+            let data;
+            try {
+              data = await window.slingshot('com.bad-example.identity.resolveMiniDoc', {
+                params: { identifier: did },
+              });
+              this.handle = data.handle;
+            } catch (e) {
+              if (window.isXrpcErr(e)) {
+                this.error = e.error;
+              } else {
+                this.error = 'failed (see console)';
+                console.error(e);
+              }
+            }
+            loading = false;
+          }
+        }))
       })
     </script>
   </head>
@@ -341,59 +389,87 @@
                 <p x-show="loadingDesc">Loading&hellip;</p>
                 <p x-show="error" class="text-warning" x-text="error"></p>
                 <template x-if="description !== null">
-                  <div class="overflow-x-auto">
-                    <table class="table table-xs">
-                      <tbody>
-                        <tr>
-                          <td class="text-sm">Open registration</td>
-                          <td
-                            class="text-sm"
-                            x-text="!description.inviteCodeRequired"
-                          ></td>
-                        </tr>
-                      </tbody>
-                    </table>
-                    <h4 class="font-bold">
-                      Accounts
-                    </h4>
-                    <table class="table table-xs">
-                      <tbody>
-                        <template x-for="account in accounts">
+                  <div>
+                    <div class="overflow-x-auto">
+                      <table class="table table-xs">
+                        <tbody>
                           <tr>
-                            <td>
-                              <code>
-                                <a
-                                  href="#"
-                                  class="link"
-                                  x-text="account.did"
-                                  @click.prevent="goto(account.did)"
-                                ></a>
-                              </code>
-                            </td>
-                            <td>
+                            <td class="text-sm">
+                              Open registration:
                               <span
-                                x-show="account.active"
-                                class="badge badge-sm badge-soft badge-success"
-                              >
-                                active
-                              </span>
-                              <span
-                                x-show="!account.active"
-                                x-text="account.status"
-                                class="badge badge-sm badge-soft badge-warning"
+                                x-text="!description.inviteCodeRequired"
                               ></span>
                             </td>
                           </tr>
-                        </template>
-                        <template x-if="!accountsComplete">
                           <tr>
-                            <td colspan="2" class="text-sm text-warning-content">
-                              (account list clipped)
+                            <td class="text-sm">
+                              Version:
+                              <code
+                                class="text-xs"
+                                x-text="version"
+                              ></code>
                             </td>
                           </tr>
-                        </template>
-                      </tbody>
-                    </table>
+                        </tbody>
+                      </table>
+                    </div>
+                    <h4 class="font-bold">
+                      Accounts
+                    </h4>
+                    <div class="overflow-x-auto overflow-y-auto max-h-26">
+                      <table class="table table-xs">
+                        <tbody>
+                          <template x-for="account in accounts">
+                            <tr>
+                              <td>
+                                <code>
+                                  <a
+                                    href="#"
+                                    class="link"
+                                    x-text="account.did"
+                                    @click.prevent="goto(account.did)"
+                                  ></a>
+                                </code>
+                              </td>
+                              <td>
+                                <span
+                                  x-show="account.active"
+                                  class="badge badge-sm badge-soft badge-success"
+                                >
+                                  active
+                                </span>
+                                <span
+                                  x-show="!account.active"
+                                  x-text="account.status"
+                                  class="badge badge-sm badge-soft badge-warning"
+                                ></span>
+                              </td>
+                              <td
+                                x-data="didToHandle(account.did)"
+                                x-intersect:enter.once="load"
+                              >
+                                <span x-show="loading">Loading&hellip;</span>
+                                <span x-show="error !== null" x-text="error"></span>
+                                <a
+                                  href="#"
+                                  class="link"
+                                  @click.prevent="goto(handle)"
+                                  x-show="handle !== null"
+                                  x-text="`@${handle}`"
+                                ></a>
+                              </td>
+                            </tr>
+                          </template>
+                          <template x-if="!loadingDesc && !accountsComplete">
+                            <tr>
+                              <td colspan="2" class="text-xs text-warning-content">
+                                (more accounts not shown)
+                              </td>
+                            </tr>
+                          </template>
+                        </tbody>
+                      </table>
+                    </div>
                   </div>
                 </template>
               </div>
