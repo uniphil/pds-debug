@@ -409,7 +409,14 @@
                 const log = await res.json();
                 let prev = null;
                 for (op of log) {
-                  const opPds = op.operation.services.atproto_pds.endpoint;
+                  let opPds = null;
+                  const services = op.operation.services;
+                  if (services) {
+                    const app = services.atproto_pds;
+                    if (app) {
+                      opPds = app.endpoint;
+                    }
+                  }
                   if (opPds === prev) continue;
                   prev = opPds;
                   this.history.push({
@@ -446,10 +453,12 @@
                 let prev = null;
                 for (op of log) {
                   let opHandle = null;
-                  for (aka of op.operation.alsoKnownAs) {
-                    if (aka.startsWith("at://")) {
-                      opHandle = aka.slice("at://".length);
-                      break;
+                  if (op.operation.alsoKnownAs) {
+                    for (aka of op.operation.alsoKnownAs) {
+                      if (aka.startsWith("at://")) {
+                        opHandle = aka.slice("at://".length);
+                        break;
+                      }
                     }
                   }
                   if (opHandle === prev) continue;
