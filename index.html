@@ -407,18 +407,18 @@
               const res = await fetch(`https://plc.directory/${did}/log/audit`);
               if (res.ok) {
                 const log = await res.json();
-                const seen = new Set();
-                seen.add(currentPds);
+                let prev = null;
                 for (op of log) {
                   const opPds = op.operation.services.atproto_pds.endpoint;
-                  if (seen.has(opPds)) continue;
-                  seen.add(opPds);
+                  if (opPds === prev) continue;
+                  prev = opPds;
                   this.history.push({
                     pds: opPds,
                     date: op.createdAt,
                   });
                 }
                 this.history.reverse();
+                if (this.history[0]) this.history[0].current = true;
               } else {
                 this.error = `${res.status}: ${await res.text()}`;
               }
@@ -443,8 +443,7 @@
               const res = await fetch(`https://plc.directory/${did}/log/audit`);
               if (res.ok) {
                 const log = await res.json();
-                const seen = new Set();
-                seen.add(currentHandle);
+                let prev = null;
                 for (op of log) {
                   let opHandle = null;
                   for (aka of op.operation.alsoKnownAs) {
@@ -453,8 +452,8 @@
                       break;
                     }
                   }
-                  if (seen.has(opHandle)) continue;
-                  seen.add(opHandle);
+                  if (opHandle === prev) continue;
+                  prev = opHandle;
                   this.history.push({
                     handle: opHandle,
                     date: op.createdAt,
@@ -814,17 +813,32 @@
                                     x-text="event.pds"
                                   ></a>
                                 </td>
-                                <td>
-                                  <span
-                                    x-show="state && !state.active"
-                                    x-text="state && state.status"
-                                    class="badge badge-sm badge-soft badge-success"
-                                  ></span>
-                                  <span
-                                    x-show="state && state.active"
-                                    class="badge badge-sm badge-soft badge-warning"
-                                  >active</span>
-                                </td>
+                                <template x-if="event.current">
+                                  <td>
+                                    <span
+                                      x-show="state && !state.active"
+                                      x-text="state && state.status"
+                                      class="badge badge-sm badge-soft badge-warning"
+                                    ></span>
+                                    <span
+                                      x-show="state && state.active"
+                                      class="badge badge-sm badge-soft badge-success"
+                                    >current</span>
+                                  </td>
+                                </template>
+                                <template x-if="!event.current">
+                                  <td>
+                                    <span
+                                      x-show="state && !state.active"
+                                      x-text="state && state.status"
+                                      class="badge badge-sm badge-soft badge-success"
+                                    ></span>
+                                    <span
+                                      x-show="state && state.active"
+                                      class="badge badge-sm badge-soft badge-warning"
+                                    >active</span>
+                                  </td>
+                                </template>
                               </tr>
                             </template>
                           </tbody>
