@@ -362,6 +362,39 @@
           },
         }));
 
+        Alpine.data('repoSize', () => ({
+          lading: false,
+          error: null,
+          size: null,
+
+          async loadRepoForSize(did, pds) {
+            this.loading = true;
+
+            if (!did || !pds) {
+              this.loading = false;
+              return;
+            }
+            const query = window.SimpleQuery(pds);
+            try {
+              const res = await query('com.atproto.sync.getRepo', {
+                params: { did },
+                as: 'blob',
+              });
+              let bytes = res.size;
+              let mbs = bytes / Math.pow(2, 20);
+              this.size = mbs.toFixed(1);
+            } catch (e) {
+              if (window.isXrpcErr(e)) {
+                this.error = e.error;
+              } else {
+                this.error = 'failed (see console)';
+                console.error(e);
+              }
+            }
+            this.loading = false;
+          },
+        }));
+
         Alpine.data('relayCheckRepo', (did, relay) => ({
           loading: false,
           error: null,
@@ -725,6 +758,30 @@
                               @click.prevent="goto(pds)"
                               x-text="pds"
                             ></a>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td class="text-sm">
+                            Size:
+                            <span x-data="repoSize">
+                              <template x-if="loading">
+                                <em>loading&hellip;</em>
+                              </template>
+                              <template x-if="error">
+                                <span class="text-xs text-warning" x-text="error"></span>
+                              </template>
+                              <template x-if="size">
+                                <code>
+                                  <span x-text="size"></span> MiB
+                                </code>
+                              </template>
+                              <template x-if="!size && !error && !loading">
+                                <button
+                                  class="btn btn-xs btn-soft btn-primary"
+                                  @click.prevent="loadRepoForSize(did, pds)"
+                                >load</button>
+                              </template>
+                            </span>
                           </td>
                         </tr>
                       </tbody>
