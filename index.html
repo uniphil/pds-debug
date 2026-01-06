@@ -220,7 +220,23 @@
                 params: { limit: 100 },
               });
               this.accounts = accountsRes.repos;
-              this.accountsComplete == !accountsRes.cursor;
+
+              // weird thing with the ref pds: it *always* has a cursor on the first page
+              if (accountsRes.cursor) {
+                // so grab a second page just to see if there really is a second page
+                try {
+                  const secondPage = await query('com.atproto.sync.listRepos', {
+                    params: { limit: 1, cursor: accountsRes.cursor },
+                  });
+                  this.accountsComplete = !secondPage.cursor || secondPage.repos.length == 0;
+                } catch (e) {
+                  // we're in a niche spot. ignore errors and look at the original (faulty) cursor
+                  this.accountsComplete = !accountsRes.cursor; // 🤷‍♀️
+                }
+              } else {
+                this.accountsComplete = true;
+              }
+
             } catch (e) {
               if (window.isXrpcErr(e)) {
                 this.error = e.error;
@@ -554,145 +570,444 @@
       })
     </script>
   </head>
-  <body x-data="debug">
-    <div class="hero bg-base-200">
+  <body x-data="debug" class="bg-base-200">
+    <div class="hero bg-base-200 p-8">
       <div class="hero-content flex-col">
-        <h1>PDS Debugger</h1>
-
-        <p class="text-sm">Work in progress!</p>
-        <details class="text-xs">
-          <summary>Future features</summary>
-          <ul class="list-disc pl-4">
-            <li>firehose & jetstream listeners</li>
-          </ul>
-        </details>
-        <details class="text-xs">
-          <summary>Limitations</summary>
-          <ul class="list-disc pl-4">
-            <li>The Bluesky production relay at <code>bsky.network</code> runs the old bgs implementation, and is missing many relay XRPC endpoints.</li>
-            <li>The Blacksky relay at <code>atproto.africa</code> runs an independent implementation, and is also missing many relay XRPC endpoints.</li>
-            <li>All diagnostics run in your browser, so servers that don't enable CORS (some PDS hosts, Upcloud's relay) will fail tests.</li>
-          </ul>
-        </details>
-
-        <div class="card bg-base-100 w-full max-w-sm shrink-0 shadow-2xl">
-          <div class="card-body">
-            <form @submit.prevent="await diagnose()">
-              <label>
-                Enter an atproto handle, DID, or HTTPS PDS URL
-                <input
-                  class="input"
-                  x-model="identifier"
-                  :disabled="identifierLoading"
-                  autofocus
-                />
-              </label>
-            </form>
+        <h1 class="text-2xl mb-8">PDS Debugger</h1>
+        <form @submit.prevent="await diagnose()">
+          <label class="text-sm text-primary" for="identifier">
+            atproto handle, DID, or HTTPS PDS URL
+          </label>
+          <br/>
+          <div class="join">
+            <input
+              id="identifier"
+              class="input join-item"
+              x-model="identifier"
+              :disabled="identifierLoading"
+              autofocus
+            />
+            <button
+              class="btn btn-primary join-item"
+              type="submit"
+            >go</button>
           </div>
-        </div>
+        </form>
+      </div>
+    </div>
 
-        <template x-if="identifierError">
-          <p>uh oh: <span x-text="identifierError"></span></p>
-        </template>
+    <div class="w-full max-w-lg mx-auto">
+      <template x-if="identifierError">
+        <p>uh oh: <span x-text="identifierError"></span></p>
+      </template>
 
-        <template x-if="pds != null">
-          <div class="card bg-base-100 w-full max-w-lg shrink-0 shadow-2xl">
-            <div class="card-body">
-              <h2 class="card-title">
-                 <span class="badge badge-secondary">PDS</span>
-                 <span x-text="pds"></span>
-              </h2>
+      <template x-if="pds != null">
 
-              <div
-                x-data="pdsCheck(pds)"
-                x-init="$watch('pds', v => update(v))"
-              >
-                <h3 class="text-lg mt-3">
-                  Server
-                  <span
-                    x-show="description !== null"
-                    class="badge badge-sm badge-soft badge-success"
-                  >online</span>
-                </h3>
-                <p x-show="loadingDesc">Loading&hellip;</p>
-                <p x-show="error" class="text-warning" x-text="error"></p>
-                <template x-if="description !== null">
-                  <div>
-                    <div class="overflow-x-auto">
-                      <table class="table table-xs">
-                        <tbody>
+        <div class="card bg-base-100 w-full max-w-2xl shrink-0 shadow-2xl m-4">
+          <div class="card-body">
+            <h2 class="card-title">
+               <span class="badge badge-secondary">PDS</span>
+               <span x-text="pds"></span>
+            </h2>
+
+            <div
+              x-data="pdsCheck(pds)"
+              x-init="$watch('pds', v => update(v))"
+            >
+              <h3 class="text-lg mt-3">
+                Server
+                <span
+                  x-show="description !== null"
+                  class="badge badge-sm badge-soft badge-success"
+                >online</span>
+              </h3>
+              <p x-show="loadingDesc">Loading&hellip;</p>
+              <p x-show="error" class="text-warning" x-text="error"></p>
+              <template x-if="description !== null">
+                <div>
+                  <div class="overflow-x-auto">
+                    <table class="table table-xs">
+                      <tbody>
+                        <tr>
+                          <td class="text-sm">
+                            Open registration:
+                            <span
+                              x-text="!description.inviteCodeRequired"
+                            ></span>
+                          </td>
+                        </tr>
+                        <tr>
+                          <td class="text-sm">
+                            Version:
+                            <code
+                              class="text-xs"
+                              x-text="version"
+                            ></code>
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <h4 class="font-bold">
+                    Accounts
+                  </h4>
+                  <div class="overflow-x-auto overflow-y-auto max-h-26">
+                    <table class="table table-xs">
+                      <tbody>
+                        <template x-for="account in accounts">
                           <tr>
-                            <td class="text-sm">
-                              Open registration:
-                              <span
-                                x-text="!description.inviteCodeRequired"
-                              ></span>
-                            </td>
-                          </tr>
-                          <tr>
-                            <td class="text-sm">
-                              Version:
-                              <code
-                                class="text-xs"
-                                x-text="version"
-                              ></code>
-                            </td>
-                          </tr>
-                        </tbody>
-                      </table>
-                    </div>
-                    <h4 class="font-bold">
-                      Accounts
-                    </h4>
-                    <div class="overflow-x-auto overflow-y-auto max-h-26">
-                      <table class="table table-xs">
-                        <tbody>
-                          <template x-for="account in accounts">
-                            <tr>
-                              <td>
-                                <code>
-                                  <a
-                                    href="#"
-                                    class="link"
-                                    x-text="account.did"
-                                    @click.prevent="goto(account.did)"
-                                  ></a>
-                                </code>
-                              </td>
-                              <td>
-                                <span
-                                  x-show="account.active"
-                                  class="badge badge-sm badge-soft badge-success"
-                                >
-                                  active
-                                </span>
-                                <span
-                                  x-show="!account.active"
-                                  x-text="account.status"
-                                  class="badge badge-sm badge-soft badge-warning"
-                                ></span>
-                              </td>
-                              <td
-                                x-data="didToHandle(account.did)"
-                                x-intersect:enter.once="load"
-                              >
-                                <span x-show="loading">Loading&hellip;</span>
-                                <span x-show="error !== null" x-text="error"></span>
+                            <td>
+                              <code>
                                 <a
                                   href="#"
                                   class="link"
-                                  @click.prevent="goto(handle)"
-                                  x-show="handle !== null"
-                                  x-text="`@${handle}`"
+                                  x-text="account.did"
+                                  @click.prevent="goto(account.did)"
                                 ></a>
+                              </code>
+                            </td>
+                            <td>
+                              <span
+                                x-show="account.active"
+                                class="badge badge-sm badge-soft badge-success"
+                              >
+                                active
+                              </span>
+                              <span
+                                x-show="!account.active"
+                                x-text="account.status"
+                                class="badge badge-sm badge-soft badge-warning"
+                              ></span>
+                            </td>
+                            <td
+                              x-data="didToHandle(account.did)"
+                              x-intersect:enter.once="load"
+                            >
+                              <span x-show="loading">Loading&hellip;</span>
+                              <span x-show="error !== null" x-text="error"></span>
+                              <a
+                                href="#"
+                                class="link"
+                                @click.prevent="goto(handle)"
+                                x-show="handle !== null"
+                                x-text="`@${handle}`"
+                              ></a>
+                            </td>
+                          </tr>
+                        </template>
+                        <template x-if="!loadingDesc && !accountsComplete">
+                          <tr>
+                            <td colspan="2" class="text-xs text-warning-content">
+                              (more accounts not shown)
+                            </td>
+                          </tr>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              </template>
+            </div>
+
+            <h3 class="text-lg mt-3">Relay host status</h3>
+            <div class="overflow-x-auto">
+              <table class="table table-xs">
+                <tbody>
+                  <template x-for="relay in window.relays">
+                    <tr
+                      x-data="relayCheckHost(pds, relay)"
+                      x-init="$watch('pds', pds => check(pds, relay))"
+                    >
+                      <td class="text-sm">
+                        <div class="tooltip tooltip-right" :data-tip="relay.hostname">
+                          <img
+                            class="inline-block h-4 w-4"
+                            :src="relay.icon"
+                            alt=""
+                          />
+                          <span x-text="relay.name"></span>
+                          <span
+                            x-show="!!relay.note"
+                            x-text="relay.note"
+                            class="badge badge-soft badge-neutral badge-xs"
+                          ></span>
+                        </div>
+                      </td>
+                      <td>
+                        <template x-if="loading">
+                          <em>loading&hellip;</em>
+                        </template>
+                        <template x-if="error">
+                          <div
+                            class="text-xs"
+                            :class="expectedErrorInfo
+                              ? 'text-info tooltip tooltip-left cursor-help'
+                              : 'text-warning'"
+                            :data-tip="expectedErrorInfo"
+                          >
+                            <span x-text="error"></span>
+                            <span
+                              x-show="!!expectedErrorInfo"
+                              class="badge badge-soft badge-info badge-xs"
+                            >i</span>
+                          </div>
+                        </template>
+                        <template x-if="status">
+                          <span
+                            x-text="status"
+                            class="badge badge-sm"
+                            :class="status === 'active' && 'badge-soft badge-success'"
+                          ></span>
+                        </template>
+                      </td>
+                      <td>
+                        <div x-show="status !== 'active' && !expectedErrorInfo">
+                          <button
+                            x-show="reqCrawlStatus !== 'done'"
+                            class="btn btn-xs btn-ghost whitespace-nowrap"
+                            :disabled="reqCrawlStatus === 'loading'"
+                            @click="requestCrawl(pds, relay)"
+                          >
+                            request crawl
+                          </button>
+                          <span
+                            x-show="reqCrawlError !== null"
+                            x-text="reqCrawlError"
+                            class="text-xs text-warning"
+                          ></span>
+                          <button
+                            x-show="reqCrawlError === null && reqCrawlStatus === 'done'"
+                            class="btn btn-xs btn-soft btn-primary whitespace-nowrap"
+                            @click="check"
+                          >
+                            refresh
+                          </button>
+                        </div>
+                      </td>
+                    </tr>
+                  </template>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      </template>
+
+      <template x-if="did != null">
+        <div class="card bg-base-100 w-full max-w-2xl shrink-0 shadow-2xl m-4">
+          <div class="card-body">
+            <h2 class="card-title">
+              <span class="badge badge-secondary">DID</span>
+              <code x-text="did"></code>
+            </h2>
+            <template x-if="pds != null">
+              <div x-data="didRepoState(did, pds)">
+                <h3 class="text-lg mt-3">
+                  Repo
+                  <span
+                    x-show="state && state.active"
+                    class="badge badge-sm badge-soft badge-success"
+                  >active</span>
+                </h3>
+                <div class="overflow-x-auto">
+                  <table class="table table-xs">
+                    <tbody>
+                      <tr>
+                        <td class="text-sm">
+                          Rev:
+                          <code x-text="state && state.rev"></code>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td class="text-sm">
+                          Size:
+                          <span x-data="repoSize">
+                            <template x-if="loading">
+                              <em>loading&hellip;</em>
+                            </template>
+                            <template x-if="error">
+                              <span class="text-xs text-warning" x-text="error"></span>
+                            </template>
+                            <template x-if="size">
+                              <code>
+                                <span x-text="size"></span> MiB
+                              </code>
+                            </template>
+                            <template x-if="!size && !error && !loading">
+                              <button
+                                class="btn btn-xs btn-soft btn-primary"
+                                @click.prevent="loadRepoForSize(did, pds)"
+                              >load</button>
+                            </template>
+                          </span>
+                        </td>
+                      </tr>
+                      <tr>
+                        <td class="text-sm">
+                          PDS:
+                          <a
+                            href="#"
+                            class="link"
+                            @click.prevent="goto(pds)"
+                            x-text="pds"
+                          ></a>
+                        </td>
+                      </tr>
+                    </tbody>
+                  </table>
+                </div>
+
+                <h3 class="text-lg mt-3">
+                  Relay repo status
+                </h3>
+                <div class="overflow-x-auto">
+                  <table class="table table-xs">
+                    <tbody>
+                      <template x-for="relay in window.relays">
+                        <tr
+                          x-data="relayCheckRepo(did, relay)"
+                          x-init="$watch('pds', pds => check(did, relay))"
+                        >
+                          <td class="text-sm">
+                            <div class="tooltip tooltip-right" :data-tip="relay.hostname">
+                              <img
+                                class="inline-block h-4 w-4"
+                                :src="relay.icon"
+                                alt=""
+                              />
+                              <span x-text="relay.name"></span>
+                              <span
+                                x-show="!!relay.note"
+                                x-text="relay.note"
+                                class="badge badge-neutral badge-soft badge-xs"
+                              ></span>
+                            </div>
+                          </td>
+                          <template x-if="loading">
+                            <td>
+                              <em>loading&hellip;</em>
+                            </td>
+                          </template>
+                          <template x-if="error">
+                            <td>
+                              <div
+                                class="text-xs"
+                                :class="expectedErrorInfo
+                                  ? 'text-info tooltip tooltip-left cursor-help'
+                                  : 'text-warning'"
+                                :data-tip="expectedErrorInfo"
+                              >
+                                <span x-text="error"></span>
+                                <span
+                                  x-show="!!expectedErrorInfo"
+                                  class="badge badge-soft badge-info badge-xs"
+                                >i</span>
+                              </div>
+                            </td>
+                          </template>
+                          <template x-if="status">
+                            <td>
+                              <span
+                                x-show="status.active"
+                                class="badge badge-sm badge-soft badge-success"
+                              >
+                                active
+                              </span>
+                              <span
+                                x-show="!status.active"
+                                x-text="status.status"
+                                class="badge badge-sm badge-soft badge-warning"
+                              ></span>
+                            </td>
+                          </template>
+                          <template x-if="revStatus(state && state.rev)">
+                            <td x-data="{ asdf: revStatus(state.rev) }">
+                              <span
+                                x-show="asdf === 'current'"
+                                class="badge badge-sm badge-soft badge-success"
+                              >current</span>
+                              <span
+                                x-show="asdf === 'behind'"
+                                class="badge badge-sm badge-soft badge-warning tooltip tooltip-left"
+                                :data-tip="status.rev"
+                              >behind</span>
+                              <span
+                                x-show="asdf === 'ahead'"
+                                class="badge badge-sm badge-soft badge-success tooltip tooltip-left"
+                                :data-tip="`Account may have updated between checks? ${status.rev}`"
+                              >ahead</span>
+                            </td>
+                          </template>
+                        </tr>
+                      </template>
+                    </tbody>
+                  </table>
+                </div>
+
+                <template x-if="did.startsWith('did:plc:')">
+                  <div x-data="pdsHistory(did, pds)">
+                    <h3 class="text-lg mt-3">
+                      PLC PDS history
+                    </h3>
+                    <div class="overflow-x-auto">
+                      <table class="table table-xs">
+                        <tbody>
+                          <template x-if="loading">
+                            <tr>
+                              <td>Loading&hellip;</td>
+                            </tr>
+                          </template>
+                          <template x-if="error">
+                            <tr>
+                              <td>Error: <span x-text="error"></span></td>
+                            </tr>
+                          </template>
+                          <template x-if="!loading && !error && history.length === 0">
+                            <tr>
+                              <td class="text-sm">
+                                <em>no previous PDS</em>
                               </td>
                             </tr>
                           </template>
-                          <template x-if="!loadingDesc && !accountsComplete">
-                            <tr>
-                              <td colspan="2" class="text-xs text-warning-content">
-                                (more accounts not shown)
+                          <template x-for="event in history">
+                            <tr x-data="didRepoState(did, event.pds)">
+                              <td>
+                                <code x-text="event.date.split('T')[0]"></code>
                               </td>
+                              <td>
+                                <a
+                                  href="#"
+                                  class="link"
+                                  @click.prevent="goto(event.pds)"
+                                  x-text="event.pds"
+                                ></a>
+                              </td>
+                              <template x-if="event.current">
+                                <td>
+                                  <span
+                                    x-show="state && !state.active"
+                                    x-text="state && state.status"
+                                    class="badge badge-sm badge-soft badge-warning"
+                                  ></span>
+                                  <span
+                                    x-show="state && state.active"
+                                    class="badge badge-sm badge-soft badge-success"
+                                  >current</span>
+                                </td>
+                              </template>
+                              <template x-if="!event.current">
+                                <td>
+                                  <span
+                                    x-show="state && !state.active"
+                                    x-text="state && state.status"
+                                    class="badge badge-sm badge-soft badge-success"
+                                  ></span>
+                                  <span
+                                    x-show="state && state.active"
+                                    class="badge badge-sm badge-soft badge-warning"
+                                  >active</span>
+                                </td>
+                              </template>
                             </tr>
                           </template>
                         </tbody>
@@ -701,419 +1016,128 @@
                   </div>
                 </template>
               </div>
-
-              <h3 class="text-lg mt-3">Relay host status</h3>
-              <div class="overflow-x-auto">
-                <table class="table table-xs">
-                  <tbody>
-                    <template x-for="relay in window.relays">
-                      <tr
-                        x-data="relayCheckHost(pds, relay)"
-                        x-init="$watch('pds', pds => check(pds, relay))"
-                      >
-                        <td class="text-sm">
-                          <div class="tooltip tooltip-right" :data-tip="relay.hostname">
-                            <img
-                              class="inline-block h-4 w-4"
-                              :src="relay.icon"
-                              alt=""
-                            />
-                            <span x-text="relay.name"></span>
-                            <span
-                              x-show="!!relay.note"
-                              x-text="relay.note"
-                              class="badge badge-soft badge-neutral badge-xs"
-                            ></span>
-                          </div>
-                        </td>
-                        <td>
-                          <template x-if="loading">
-                            <em>loading&hellip;</em>
-                          </template>
-                          <template x-if="error">
-                            <div
-                              class="text-xs"
-                              :class="expectedErrorInfo
-                                ? 'text-info tooltip tooltip-left cursor-help'
-                                : 'text-warning'"
-                              :data-tip="expectedErrorInfo"
-                            >
-                              <span x-text="error"></span>
-                              <span
-                                x-show="!!expectedErrorInfo"
-                                class="badge badge-soft badge-info badge-xs"
-                              >i</span>
-                            </div>
-                          </template>
-                          <template x-if="status">
-                            <span
-                              x-text="status"
-                              class="badge badge-sm"
-                              :class="status === 'active' && 'badge-soft badge-success'"
-                            ></span>
-                          </template>
-                        </td>
-                        <td>
-                          <div x-show="status !== 'active' && !expectedErrorInfo">
-                            <button
-                              x-show="reqCrawlStatus !== 'done'"
-                              class="btn btn-xs btn-ghost whitespace-nowrap"
-                              :disabled="reqCrawlStatus === 'loading'"
-                              @click="requestCrawl(pds, relay)"
-                            >
-                              request crawl
-                            </button>
-                            <span
-                              x-show="reqCrawlError !== null"
-                              x-text="reqCrawlError"
-                              class="text-xs text-warning"
-                            ></span>
-                            <button
-                              x-show="reqCrawlError === null && reqCrawlStatus === 'done'"
-                              class="btn btn-xs btn-soft btn-primary whitespace-nowrap"
-                              @click="check"
-                            >
-                              refresh
-                            </button>
-                          </div>
-                        </td>
-                      </tr>
-                    </template>
-                  </tbody>
-                </table>
-              </div>
-            </div>
+            </template>
           </div>
-        </template>
+        </div>
+      </template>
 
-        <template x-if="did != null">
-          <div class="card bg-base-100 w-full max-w-lg shrink-0 shadow-2xl">
-            <div class="card-body">
-              <h2 class="card-title">
-                <span class="badge badge-secondary">DID</span>
-                <code x-text="did"></code>
-              </h2>
-              <template x-if="pds != null">
-                <div x-data="didRepoState(did, pds)">
-                  <h3 class="text-lg mt-3">
-                    Repo
-                    <span
-                      x-show="state && state.active"
-                      class="badge badge-sm badge-soft badge-success"
-                    >active</span>
-                  </h3>
-                  <div class="overflow-x-auto">
-                    <table class="table table-xs">
-                      <tbody>
+      <template x-if="handle !== null">
+        <div class="card bg-base-100 w-full max-w-2xl shrink-0 shadow-2xl m-4">
+          <div
+            x-data="checkHandle(handle)"
+            x-init="$watch('handle', h => updateHandle(h))"
+            class="card-body"
+          >
+            <h2 class="card-title">
+              <span class="badge badge-secondary">Handle</span>
+              <span x-text="handle"></span>
+            </h2>
+
+            <h3 class="text-lg mt-3">
+              Resolution
+            </h3>
+            <p x-show="loading" class="text-i">Loading&hellip;</p>
+            <div x-show="!loading" class="overflow-x-auto">
+              <table class="table table-xs">
+                <tbody>
+                  <tr>
+                    <td class="text-sm">DNS</td>
+                    <td class="text-sm">
+                      <code x-text="dnsDid"></code>
+                    </td>
+                    <td>
+                      <div
+                        class="badge badge-sm badge-soft badge-neutral"
+                        x-show="dnsErr !== null"
+                        x-text="dnsErr"
+                      ></div>
+                    </td>
+                  </tr>
+                  <tr>
+                    <td class="text-sm">Http</td>
+                    <td class="text-sm">
+                      <code x-text="httpDid"></code>
+                    </td>
+                    <td>
+                      <div
+                        class="badge badge-sm badge-soft badge-neutral"
+                        x-show="httpErr !== null"
+                        x-text="httpErr"
+                      ></div>
+                    </td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+
+            <template x-if="did !== null && did.startsWith('did:plc:')">
+
+              <div x-data="handleHistory(did, handle)">
+                <h3 class="text-lg mt-3">
+                  PLC handle history
+                </h3>
+                <div class="overflow-x-auto">
+                  <table class="table table-xs">
+                    <tbody>
+                      <template x-if="loading">
+                        <tr>
+                          <td>Loading&hellip;</td>
+                        </tr>
+                      </template>
+                      <template x-if="error">
+                        <tr>
+                          <td>Error: <span x-text="error"></span></td>
+                        </tr>
+                      </template>
+                      <template x-if="!loading && !error && history.length === 0">
                         <tr>
                           <td class="text-sm">
-                            Rev:
-                            <code x-text="state && state.rev"></code>
+                            <em>no previous handle</em>
                           </td>
                         </tr>
+                      </template>
+                      <template x-for="event in history">
                         <tr>
-                          <td class="text-sm">
-                            PDS:
+                          <td>
+                            <code x-text="event.date.split('T')[0]"></code>
+                          </td>
+                          <td>
                             <a
                               href="#"
                               class="link"
-                              @click.prevent="goto(pds)"
-                              x-text="pds"
+                              @click.prevent="goto(event.handle)"
+                              x-text="event.handle"
                             ></a>
                           </td>
                         </tr>
-                        <tr>
-                          <td class="text-sm">
-                            Size:
-                            <span x-data="repoSize">
-                              <template x-if="loading">
-                                <em>loading&hellip;</em>
-                              </template>
-                              <template x-if="error">
-                                <span class="text-xs text-warning" x-text="error"></span>
-                              </template>
-                              <template x-if="size">
-                                <code>
-                                  <span x-text="size"></span> MiB
-                                </code>
-                              </template>
-                              <template x-if="!size && !error && !loading">
-                                <button
-                                  class="btn btn-xs btn-soft btn-primary"
-                                  @click.prevent="loadRepoForSize(did, pds)"
-                                >load</button>
-                              </template>
-                            </span>
-                          </td>
-                        </tr>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <h3 class="text-lg mt-3">
-                    Relay repo status
-                  </h3>
-                  <div class="overflow-x-auto">
-                    <table class="table table-xs">
-                      <tbody>
-                        <template x-for="relay in window.relays">
-                          <tr
-                            x-data="relayCheckRepo(did, relay)"
-                            x-init="$watch('pds', pds => check(did, relay))"
-                          >
-                            <td class="text-sm">
-                              <div class="tooltip tooltip-right" :data-tip="relay.hostname">
-                                <img
-                                  class="inline-block h-4 w-4"
-                                  :src="relay.icon"
-                                  alt=""
-                                />
-                                <span x-text="relay.name"></span>
-                                <span
-                                  x-show="!!relay.note"
-                                  x-text="relay.note"
-                                  class="badge badge-neutral badge-soft badge-xs"
-                                ></span>
-                              </div>
-                            </td>
-                            <template x-if="loading">
-                              <td>
-                                <em>loading&hellip;</em>
-                              </td>
-                            </template>
-                            <template x-if="error">
-                              <td>
-                                <div
-                                  class="text-xs"
-                                  :class="expectedErrorInfo
-                                    ? 'text-info tooltip tooltip-left cursor-help'
-                                    : 'text-warning'"
-                                  :data-tip="expectedErrorInfo"
-                                >
-                                  <span x-text="error"></span>
-                                  <span
-                                    x-show="!!expectedErrorInfo"
-                                    class="badge badge-soft badge-info badge-xs"
-                                  >i</span>
-                                </div>
-                              </td>
-                            </template>
-                            <template x-if="status">
-                              <td>
-                                <span
-                                  x-show="status.active"
-                                  class="badge badge-sm badge-soft badge-success"
-                                >
-                                  active
-                                </span>
-                                <span
-                                  x-show="!status.active"
-                                  x-text="status.status"
-                                  class="badge badge-sm badge-soft badge-warning"
-                                ></span>
-                              </td>
-                            </template>
-                            <template x-if="revStatus(state && state.rev)">
-                              <td x-data="{ asdf: revStatus(state.rev) }">
-                                <span
-                                  x-show="asdf === 'current'"
-                                  class="badge badge-sm badge-soft badge-success"
-                                >current</span>
-                                <span
-                                  x-show="asdf === 'behind'"
-                                  class="badge badge-sm badge-soft badge-warning tooltip tooltip-left"
-                                  :data-tip="status.rev"
-                                >behind</span>
-                                <span
-                                  x-show="asdf === 'ahead'"
-                                  class="badge badge-sm badge-soft badge-success tooltip tooltip-left"
-                                  :data-tip="`Account may have updated between checks? ${status.rev}`"
-                                >ahead</span>
-                              </td>
-                            </template>
-                          </tr>
-                        </template>
-                      </tbody>
-                    </table>
-                  </div>
-
-                  <template x-if="did.startsWith('did:plc:')">
-                    <div x-data="pdsHistory(did, pds)">
-                      <h3 class="text-lg mt-3">
-                        PLC PDS history
-                      </h3>
-                      <div class="overflow-x-auto">
-                        <table class="table table-xs">
-                          <tbody>
-                            <template x-if="loading">
-                              <tr>
-                                <td>Loading&hellip;</td>
-                              </tr>
-                            </template>
-                            <template x-if="error">
-                              <tr>
-                                <td>Error: <span x-text="error"></span></td>
-                              </tr>
-                            </template>
-                            <template x-if="!loading && !error && history.length === 0">
-                              <tr>
-                                <td class="text-sm">
-                                  <em>no previous PDS</em>
-                                </td>
-                              </tr>
-                            </template>
-                            <template x-for="event in history">
-                              <tr x-data="didRepoState(did, event.pds)">
-                                <td>
-                                  <code x-text="event.date.split('T')[0]"></code>
-                                </td>
-                                <td>
-                                  <a
-                                    href="#"
-                                    class="link"
-                                    @click.prevent="goto(event.pds)"
-                                    x-text="event.pds"
-                                  ></a>
-                                </td>
-                                <template x-if="event.current">
-                                  <td>
-                                    <span
-                                      x-show="state && !state.active"
-                                      x-text="state && state.status"
-                                      class="badge badge-sm badge-soft badge-warning"
-                                    ></span>
-                                    <span
-                                      x-show="state && state.active"
-                                      class="badge badge-sm badge-soft badge-success"
-                                    >current</span>
-                                  </td>
-                                </template>
-                                <template x-if="!event.current">
-                                  <td>
-                                    <span
-                                      x-show="state && !state.active"
-                                      x-text="state && state.status"
-                                      class="badge badge-sm badge-soft badge-success"
-                                    ></span>
-                                    <span
-                                      x-show="state && state.active"
-                                      class="badge badge-sm badge-soft badge-warning"
-                                    >active</span>
-                                  </td>
-                                </template>
-                              </tr>
-                            </template>
-                          </tbody>
-                        </table>
-                      </div>
-                    </div>
-                  </template>
+                      </template>
+                    </tbody>
+                  </table>
                 </div>
-              </template>
-            </div>
-          </div>
-        </template>
-
-        <template x-if="handle !== null">
-          <div class="card bg-base-100 w-full max-w-lg shrink-0 shadow-2xl">
-            <div
-              x-data="checkHandle(handle)"
-              x-init="$watch('handle', h => updateHandle(h))"
-              class="card-body"
-            >
-              <h2 class="card-title">
-                <span class="badge badge-secondary">Handle</span>
-                <span x-text="handle"></span>
-              </h2>
-
-              <h3 class="text-lg mt-3">
-                Resolution
-              </h3>
-              <p x-show="loading" class="text-i">Loading&hellip;</p>
-              <div x-show="!loading" class="overflow-x-auto">
-                <table class="table table-xs">
-                  <tbody>
-                    <tr>
-                      <td class="text-sm">DNS</td>
-                      <td class="text-sm">
-                        <code x-text="dnsDid"></code>
-                      </td>
-                      <td>
-                        <div
-                          class="badge badge-sm badge-soft badge-neutral"
-                          x-show="dnsErr !== null"
-                          x-text="dnsErr"
-                        ></div>
-                      </td>
-                    </tr>
-                    <tr>
-                      <td class="text-sm">Http</td>
-                      <td class="text-sm">
-                        <code x-text="httpDid"></code>
-                      </td>
-                      <td>
-                        <div
-                          class="badge badge-sm badge-soft badge-neutral"
-                          x-show="httpErr !== null"
-                          x-text="httpErr"
-                        ></div>
-                      </td>
-                    </tr>
-                  </tbody>
-                </table>
               </div>
 
-              <template x-if="did !== null && did.startsWith('did:plc:')">
-
-                <div x-data="handleHistory(did, handle)">
-                  <h3 class="text-lg mt-3">
-                    PLC handle history
-                  </h3>
-                  <div class="overflow-x-auto">
-                    <table class="table table-xs">
-                      <tbody>
-                        <template x-if="loading">
-                          <tr>
-                            <td>Loading&hellip;</td>
-                          </tr>
-                        </template>
-                        <template x-if="error">
-                          <tr>
-                            <td>Error: <span x-text="error"></span></td>
-                          </tr>
-                        </template>
-                        <template x-if="!loading && !error && history.length === 0">
-                          <tr>
-                            <td class="text-sm">
-                              <em>no previous handle</em>
-                            </td>
-                          </tr>
-                        </template>
-                        <template x-for="event in history">
-                          <tr>
-                            <td>
-                              <code x-text="event.date.split('T')[0]"></code>
-                            </td>
-                            <td>
-                              <a
-                                href="#"
-                                class="link"
-                                @click.prevent="goto(event.handle)"
-                                x-text="event.handle"
-                              ></a>
-                            </td>
-                          </tr>
-                        </template>
-                      </tbody>
-                    </table>
-                  </div>
-                </div>
-
-              </template>
-            </div>
+            </template>
           </div>
-        </template>
-      </div>
+        </div>
+      </template>
     </div>
+
+
+
+    <div class="footer text-xs sm:footer-horizontal text-neutral mt-32 p-8 max-w-2xl mx-auto">
+      <nav>
+        <h3 class="footer-title">Current limitations</h3>
+        <p>PDS hosts without CORS will fail tests</p>
+        <p>Bluesky relay is missing API endpoints</p>
+        <p>Blacksky relay is also missing API endpoints</p>
+        <p>The requestCrawl button is not well tested</p>
+      </nav>
+      <nav>
+
+        <h3 class="footer-title">Future features</h3>
+        <p>Account label lookup</p>
+      </nav>
+    </div>
+
   </body>
 </html>
