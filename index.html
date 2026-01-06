@@ -41,12 +41,14 @@
       window.slingshot = window.SimpleQuery('https://slingshot.microcosm.blue');
       window.relays = [
         {
-          name: 'Bluesky sync1.1 East',
-          hostname: 'relay1.us-east.bsky.network',
-        },
-        {
-          name: 'Bluesky sync1.1 West',
-          hostname: 'relay1.us-west.bsky.network',
+          name: 'Bluesky',
+          icon: 'https://web-cdn.bsky.app/static/apple-touch-icon.png',
+          hostname: 'bsky.network',
+          note: 'current',
+          missingApis: {
+            ['com.atproto.sync.getHostStatus']: 'missing API (old relay code)',
+            ['com.atproto.sync.getRepoStatus']: 'missing API (old relay code)',
+          },
         },
         {
           name: 'Microcosm Montreal',
@@ -57,16 +59,30 @@
           hostname: 'relay3.fr.hose.cam',
         },
         {
-          name: 'Bluesky prod (old)',
-          hostname: 'bsky.network',
-        },
-        {
-          name: 'Blacksky (partial xrpc)',
-          hostname: 'atproto.africa',
-        },
-        {
-          name: 'Upcloud (no CORS)',
+          name: 'Upcloud',
+          icon: 'https://upcloud.com/media/android-chrome-512x512-2-150x150.png',
           hostname: 'relay.upcloud.world',
+        },
+        {
+          name: 'Blacksky',
+          icon: 'https://blacksky.community/static/favicon-32x32.png',
+          hostname: 'atproto.africa',
+          missingApis: {
+            ['com.atproto.sync.getHostStatus']: 'API not yet deployed',
+            ['com.atproto.sync.getRepoStatus']: 'API not implemented',
+          },
+        },
+        {
+          name: 'Bluesky East',
+          icon: 'https://web-cdn.bsky.app/static/favicon-32x32.png',
+          note: 'future',
+          hostname: 'relay1.us-east.bsky.network',
+        },
+        {
+          name: 'Bluesky West',
+          icon: 'https://web-cdn.bsky.app/static/favicon-32x32.png',
+          note: 'future',
+          hostname: 'relay1.us-west.bsky.network',
         },
       ];
     </script>
@@ -219,6 +235,7 @@
           loading: false,
           error: null,
           status: null,
+          expectedErrorInfo: null,
           reqCrawlStatus: null,
           reqCrawlError: null,
 
@@ -230,6 +247,7 @@
             this.loading = true;
             this.error = null;
             this.status = null;
+            this.expectedError = false;
             const query = window.SimpleQuery(`https://${relay.hostname}`);
             const hostname = pds.split('://')[1];
             let data;
@@ -239,7 +257,10 @@
               });
               this.status = data.status;
             } catch(e) {
-              if (window.isXrpcErr(e)) {
+              if (relay.missingApis['com.atproto.sync.getHostStatus']) {
+                this.error = 'Can\'t check';
+                this.expectedErrorInfo = relay.missingApis['com.atproto.sync.getHostStatus'];
+              } else if (window.isXrpcErr(e)) {
                 this.error = e.error;
               } else {
                 this.error = 'Failed to check (see console)';
@@ -399,6 +420,7 @@
           loading: false,
           error: null,
           status: null,
+          expectedErrorInfo: null,
 
           async init() {
             await this.check(did, relay);
@@ -408,6 +430,7 @@
             this.loading = true;
             this.error = null;
             this.status = null;
+            this.expectedErrorInfo = null;
 
             const query = window.SimpleQuery(`https://${relay.hostname}`);
             try {
@@ -415,7 +438,10 @@
                 params: { did },
               });
             } catch(e) {
-              if (window.isXrpcErr(e)) {
+              if (relay.missingApis['com.atproto.sync.getRepoStatus']) {
+                this.error = 'Can\'t check';
+                this.expectedErrorInfo = relay.missingApis['com.atproto.sync.getRepoStatus'];
+              } else if (window.isXrpcErr(e)) {
                 this.error = e.error;
               } else {
                 this.error = 'Failed to check (see console)';
@@ -664,7 +690,7 @@
               </div>
 
               <h3 class="text-lg mt-3">Relay host status</h3>
-              <div class="overflow-x-auto overflow-y-auto max-h-33">
+              <div class="overflow-x-auto">
                 <table class="table table-xs">
                   <tbody>
                     <template x-for="relay in window.relays">
@@ -672,16 +698,39 @@
                         x-data="relayCheckHost(pds, relay)"
                         x-init="$watch('pds', pds => check(pds, relay))"
                       >
-                        <td x-text="relay.name" class="text-sm"></td>
+                        <td class="text-sm">
+                          <div class="tooltip tooltip-right" :data-tip="relay.hostname">
+                            <img
+                              class="inline-block h-4 w-4"
+                              :src="relay.icon"
+                              alt=""
+                            />
+                            <span x-text="relay.name"></span>
+                            <span
+                              x-show="!!relay.note"
+                              x-text="relay.note"
+                              class="badge badge-soft badge-neutral badge-xs"
+                            ></span>
+                          </div>
+                        </td>
                         <td>
                           <template x-if="loading">
                             <em>loading&hellip;</em>
                           </template>
                           <template x-if="error">
-                            <span
-                              x-text="error"
-                              class="text-xs text-warning"
-                            ></span>
+                            <div
+                              class="text-xs"
+                              :class="expectedErrorInfo
+                                ? 'text-info tooltip tooltip-left cursor-help'
+                                : 'text-warning'"
+                              :data-tip="expectedErrorInfo"
+                            >
+                              <span x-text="error"></span>
+                              <span
+                                x-show="!!expectedErrorInfo"
+                                class="badge badge-soft badge-info badge-xs"
+                              >i</span>
+                            </div>
                           </template>
                           <template x-if="status">
                             <span
@@ -692,7 +741,7 @@
                           </template>
                         </td>
                         <td>
-                          <div x-show="status !== 'active'">
+                          <div x-show="status !== 'active' && !expectedErrorInfo">
                             <button
                               x-show="reqCrawlStatus !== 'done'"
                               class="btn btn-xs btn-ghost whitespace-nowrap"
@@ -791,7 +840,7 @@
                   <h3 class="text-lg mt-3">
                     Relay repo status
                   </h3>
-                  <div class="overflow-x-auto overflow-y-auto max-h-33">
+                  <div class="overflow-x-auto">
                     <table class="table table-xs">
                       <tbody>
                         <template x-for="relay in window.relays">
@@ -799,17 +848,42 @@
                             x-data="relayCheckRepo(did, relay)"
                             x-init="$watch('pds', pds => check(did, relay))"
                           >
-                            <td x-text="relay.name" class="text-sm"></td>
+                            <td class="text-sm">
+                              <div class="tooltip tooltip-right" :data-tip="relay.hostname">
+                                <img
+                                  class="inline-block h-4 w-4"
+                                  :src="relay.icon"
+                                  alt=""
+                                />
+                                <span x-text="relay.name"></span>
+                                <span
+                                  x-show="!!relay.note"
+                                  x-text="relay.note"
+                                  class="badge badge-neutral badge-soft badge-xs"
+                                ></span>
+                              </div>
+                            </td>
                             <template x-if="loading">
                               <td>
                                 <em>loading&hellip;</em>
                               </td>
                             </template>
                             <template x-if="error">
-                              <td
-                                x-text="error"
-                                class="text-xs text-warning"
-                              ></td>
+                              <td>
+                                <div
+                                  class="text-xs"
+                                  :class="expectedErrorInfo
+                                    ? 'text-info tooltip tooltip-left cursor-help'
+                                    : 'text-warning'"
+                                  :data-tip="expectedErrorInfo"
+                                >
+                                  <span x-text="error"></span>
+                                  <span
+                                    x-show="!!expectedErrorInfo"
+                                    class="badge badge-soft badge-info badge-xs"
+                                  >i</span>
+                                </div>
+                              </td>
                             </template>
                             <template x-if="status">
                               <td>
