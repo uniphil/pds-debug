@@ -143,11 +143,11 @@
                   }
                 }
               } else {
-                this.handle = this.identifier;
+                this.handle = this.identifier.toLowerCase();
                 let data;
                 try {
                   data = await window.slingshot('com.bad-example.identity.resolveMiniDoc', {
-                    params: { identifier: this.identifier },
+                    params: { identifier: this.identifier.toLowerCase() },
                   });
                   this.did = data.did;
                   this.pds = data.pds;
@@ -562,6 +562,33 @@
               }
             } catch (e) {
               this.error = 'failed to get history';
+              console.error(e);
+            }
+            this.loading = false;
+          },
+        }));
+
+        Alpine.data('modLabels', (did) => ({
+          loading: false,
+          error: null,
+          labels: [],
+
+          async init() {
+            this.loading = true;
+            this.error = null;
+            this.labels = [];
+            try {
+              const res = await fetch(`https://mod.bsky.app/xrpc/com.atproto.label.queryLabels?uriPatterns=${did}`);
+              if (res.ok) {
+                const response = await res.json();
+                if (response.labels && response.labels.length > 0) {
+                  this.labels = response.labels;
+                }
+              } else {
+                this.error = `${res.status}: ${await res.text()}`;
+              }
+            } catch (e) {
+              this.error = 'failed to get labels from mod.bsky.app';
               console.error(e);
             }
             this.loading = false;
@@ -1010,6 +1037,64 @@
                               </template>
                             </tr>
                           </template>
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </template>
+
+                <template x-if="did != null">
+                  <div x-data="modLabels(did)">
+                    <h3 class="text-lg mt-3">
+                      Labels from Bluesky (mod.bsky.app)
+                    </h3>
+                    <div class="overflow-x-auto">
+                      <table class="table table-xs">
+                        <template x-if="!loading && !error && labels.length !== 0">
+                          <thead>
+                            <tr>
+                              <th>created</th>
+                              <th>exp</th>
+                              <th>label</th>
+                            </tr>
+                          </thead>
+                        </template>
+                        <tbody>
+                        <template x-if="loading">
+                          <tr>
+                            <td>Loading&hellip;</td>
+                          </tr>
+                        </template>
+                        <template x-if="error">
+                          <tr>
+                            <td>Error: <span x-text="error"></span></td>
+                          </tr>
+                        </template>
+                        <template x-if="!loading && !error && labels.length === 0">
+                          <tr>
+                            <td class="text-sm">
+                              <em>no labels applied by mod.bsky.app</em>
+                            </td>
+                          </tr>
+                        </template>
+                        <template x-for="label in labels">
+                          <tr>
+                            <td>
+                              <code x-text="label.cts.split('.')[0]"></code>
+                            </td>
+                            <td>
+                              <code x-text="label.exp.split('.')[0]"></code>
+                            </td>
+
+                            <td>
+                                <span
+                                        x-text="label.val"
+                                        class="badge badge-sm badge-soft badge-warning"
+                                ></span>
+                            </td>
+
+                          </tr>
+                        </template>
                         </tbody>
                       </table>
                     </div>
