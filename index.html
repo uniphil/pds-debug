@@ -453,6 +453,17 @@
 
             this.loading = false;
           },
+
+          revStatus(repoRev) {
+            if (
+              !repoRev ||
+              !(this.status && this.status.rev)
+            ) return null;
+
+            if (this.status.rev < repoRev) return 'behind';
+            if (this.status.rev === repoRev) return 'current';
+            if (this.status.rev > repoRev) return 'ahead';
+          }
         }));
 
         Alpine.data('pdsHistory', (did, currentPds) => ({
@@ -902,13 +913,22 @@
                                 ></span>
                               </td>
                             </template>
-                            <template x-if="status">
-                              <td>
-                                <code
-                                  x-text="status.rev"
-                                  class="badge badge-sm badge-soft"
-                                  :class="status && state && (status.rev >= state.rev) ? 'badge-success' : 'badge-warning'"
-                                ></code>
+                            <template x-if="revStatus(state && state.rev)">
+                              <td x-data="{ asdf: revStatus(state.rev) }">
+                                <span
+                                  x-show="asdf === 'current'"
+                                  class="badge badge-sm badge-soft badge-success"
+                                >current</span>
+                                <span
+                                  x-show="asdf === 'behind'"
+                                  class="badge badge-sm badge-soft badge-warning tooltip tooltip-left"
+                                  :data-tip="status.rev"
+                                >behind</span>
+                                <span
+                                  x-show="asdf === 'ahead'"
+                                  class="badge badge-sm badge-soft badge-success tooltip tooltip-left"
+                                  :data-tip="`Account may have updated between checks? ${status.rev}`"
+                                >ahead</span>
                               </td>
                             </template>
                           </tr>
