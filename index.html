@@ -965,6 +965,9 @@
                               >ahead</span>
                             </td>
                           </template>
+                          <template x-if="!revStatus(state && state.rev)">
+                            <td></td>
+                          </template>
                         </tr>
                       </template>
                     </tbody>
