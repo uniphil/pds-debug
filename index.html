@@ -89,6 +89,9 @@
           hostname: 'relay1.us-west.bsky.network',
         },
       ];
+
+      if (window.blehYeahReady) blehYeahReady();
+      else window.yeahBlehIsReady = true;
     </script>
 
     <style>
@@ -100,7 +103,11 @@
 
     <script>
       document.addEventListener('alpine:init', () => {
-        document.body.classList.add('ready');
+        if (window.yeahBlehIsReady) {
+          document.body.classList.add('ready');
+        } else {
+          window.blehYeahReady = () => document.body.classList.add('ready');
+        }
 
         Alpine.data('debug', () => ({
           // form input
