@@ -91,8 +91,17 @@
       ];
     </script>
 
+    <style>
+      body:not(.ready) .hide-until-ready,
+      body.ready .show-until-ready {
+        display: none;
+      }
+    </style>
+
     <script>
       document.addEventListener('alpine:init', () => {
+        document.body.classList.add('ready');
+
         Alpine.data('debug', () => ({
           // form input
           identifier: '',
@@ -606,7 +615,8 @@
     <div class="hero bg-base-200 p-8">
       <div class="hero-content flex-col">
         <h1 class="text-2xl mb-8">PDS Debugger</h1>
-        <form @submit.prevent="await diagnose()">
+        <p class="show-until-ready"><em>Loading&hellip;</em></p>
+        <form class="hide-until-ready" @submit.prevent="await diagnose()">
           <label class="text-sm text-primary" for="identifier">
             atproto handle, DID, or HTTPS PDS URL
           </label>
