@@ -1005,50 +1005,36 @@
                         </template>
                         <template x-for="label in labels">
                           <template x-if="!!label">
-                            <template x-if="label.neg">
-                              <tr>
-                                <td>
-                                  removed
-                                  <code
-                                    x-text="label.cts.split('T')[0]"
-                                    :title="label.cts"
-                                  ></code>
-                                </td>
-                                <td></td>
-                                <td>
-                                  <code
-                                    x-text="label.val"
-                                    class="badge badge-sm badge-soft badge-neutral line-through"
-                                    title="label negated"
-                                  ></code>
-                                </td>
-                              </tr>
-                            </template>
-                            <template x-if="!label.neg">
-                              <tr x-data="{ expired: isBeforeNow(label.exp) }">
-                                <td>
-                                  <code
-                                    x-text="label.cts.split('T')[0]"
-                                    :title="label.cts"
-                                  ></code>
-                                </td>
-                                <td>
+                            <tr x-data="{ expired: isBeforeNow(label.exp) }">
+                              <td>
+                                <span x-show="label.neg">removed</span>
+                                <code
+                                  x-text="label.cts.split('T')[0]"
+                                  :title="label.cts"
+                                ></code>
+                              </td>
+                              <td>
+                                <template x-if="!!label.exp">
                                   <span x-text="expired ? 'expired' : 'expires'"></span>
                                   <code
                                     x-text="label.exp.split('T')[0]"
                                     :title="label.exp"
                                   ></code>
-                                </td>
-                                <td>
-                                  <code
-                                    x-text="label.val"
-                                    class="badge badge-sm badge-soft"
-                                    :class="expired ? 'badge-neutral line-through' : 'badge-warning'"
-                                    :title="expired ? 'Label expired' : ''"
-                                  ></code>
-                                </td>
-                              </tr>
-                            </template>
+                                </template>
+                              </td>
+                              <td>
+                                <code
+                                  x-text="label.val"
+                                  class="badge badge-sm badge-soft"
+                                  :class="(label.neg || expired) ? 'badge-neutral line-through' : 'badge-warning'"
+                                  :title="label.neg
+                                    ? 'label negated'
+                                    : expired
+                                      ? 'label expired'
+                                      : ''"
+                                ></code>
+                              </td>
+                            </tr>
                           </template>
                         </template>
                       </tbody>
