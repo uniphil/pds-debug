@@ -33,6 +33,8 @@
       };
       window.isXrpcErr = e => e instanceof ClientResponseError;
 
+      window.isBeforeNow = iso => new Date(iso) < new Date();
+
       window.dnsResolver = new DohJsonHandleResolver({
         dohUrl: 'https://mozilla.cloudflare-dns.com/dns-query',
       });
@@ -275,9 +277,9 @@
               });
               this.status = data.status;
             } catch(e) {
-              if (relay.missingApis['com.atproto.sync.getHostStatus']) {
+              if (relay.missingApis?.['com.atproto.sync.getHostStatus']) {
                 this.error = 'Can\'t check';
-                this.expectedErrorInfo = relay.missingApis['com.atproto.sync.getHostStatus'];
+                this.expectedErrorInfo = relay.missingApis?.['com.atproto.sync.getHostStatus'];
               } else if (window.isXrpcErr(e)) {
                 this.error = e.error;
               } else {
@@ -456,9 +458,9 @@
                 params: { did },
               });
             } catch(e) {
-              if (relay.missingApis['com.atproto.sync.getRepoStatus']) {
+              if (relay.missingApis?.['com.atproto.sync.getRepoStatus']) {
                 this.error = 'Can\'t check';
-                this.expectedErrorInfo = relay.missingApis['com.atproto.sync.getRepoStatus'];
+                this.expectedErrorInfo = relay.missingApis?.['com.atproto.sync.getRepoStatus'];
               } else if (window.isXrpcErr(e)) {
                 this.error = e.error;
               } else {
@@ -480,6 +482,36 @@
             if (this.status.rev === repoRev) return 'current';
             if (this.status.rev > repoRev) return 'ahead';
           }
+        }));
+
+        Alpine.data('modLabels', did => ({
+          loading: false,
+          error: null,
+          labels: [],
+
+          async init() {
+            this.loading = true;
+            this.error = null;
+            this.labels = [];
+
+            const query = window.SimpleQuery('https://mod.bsky.app');
+
+            try {
+              const res = await query('com.atproto.label.queryLabels', {
+                params: { uriPatterns: [did] },
+              });
+              this.labels = res.labels ?? [];
+              // TODO: handle cursors?
+            } catch (e) {
+              if (window.isXrpcErr(e)) {
+                this.error = e.error;
+              } else {
+                this.error = 'Failed to check (see console)';
+                console.error(e);
+              }
+            }
+            this.loading = false;
+          },
         }));
 
         Alpine.data('pdsHistory', (did, currentPds) => ({
@@ -562,33 +594,6 @@
               }
             } catch (e) {
               this.error = 'failed to get history';
-              console.error(e);
-            }
-            this.loading = false;
-          },
-        }));
-
-        Alpine.data('modLabels', (did) => ({
-          loading: false,
-          error: null,
-          labels: [],
-
-          async init() {
-            this.loading = true;
-            this.error = null;
-            this.labels = [];
-            try {
-              const res = await fetch(`https://mod.bsky.app/xrpc/com.atproto.label.queryLabels?uriPatterns=${did}`);
-              if (res.ok) {
-                const response = await res.json();
-                if (response.labels && response.labels.length > 0) {
-                  this.labels = response.labels;
-                }
-              } else {
-                this.error = `${res.status}: ${await res.text()}`;
-              }
-            } catch (e) {
-              this.error = 'failed to get labels from mod.bsky.app';
               console.error(e);
             }
             this.loading = false;
@@ -974,6 +979,62 @@
                   </table>
                 </div>
 
+                <div x-data="modLabels(did)">
+                  <h3 class="text-lg mt-3">
+                    Labels
+                  </h3>
+                  <div class="overflow-x-auto">
+                    <table class="table table-xs">
+                      <tbody>
+                        <template x-if="loading">
+                          <tr>
+                            <td>Loading&hellip;</td>
+                          </tr>
+                        </template>
+                        <template x-if="error">
+                          <tr>
+                            <td>Error: <span x-text="error"></span></td>
+                          </tr>
+                        </template>
+                        <template x-if="!loading && !error && labels.length === 0">
+                          <tr>
+                            <td class="text-sm">
+                              <em>no labels applied by mod.bsky.app</em>
+                            </td>
+                          </tr>
+                        </template>
+                        <template x-for="label in labels">
+                          <template x-if="!!label">
+                            <tr x-data="{ expired: isBeforeNow(label.exp) }">
+                              <td>
+                                <code
+                                  x-text="label.cts.split('T')[0]"
+                                  :title="label.cts"
+                                ></code>
+                              </td>
+                              <td>
+                                <span x-text="expired ? 'expired' : 'expires'"></span>
+                                <code
+                                  x-text="label.exp.split('T')[0]"
+                                  :title="label.exp"
+                                ></code>
+                              </td>
+                              <td>
+                                <code
+                                  x-text="label.val"
+                                  class="badge badge-sm badge-soft"
+                                  :class="expired ? 'badge-neutral line-through' : 'badge-warning'"
+                                  :title="expired ? 'Label expired' : ''"
+                                ></code>
+                              </td>
+                            </tr>
+                          </template>
+                        </template>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
                 <template x-if="did.startsWith('did:plc:')">
                   <div x-data="pdsHistory(did, pds)">
                     <h3 class="text-lg mt-3">
@@ -1040,64 +1101,6 @@
                               </template>
                             </tr>
                           </template>
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                </template>
-
-                <template x-if="did != null">
-                  <div x-data="modLabels(did)">
-                    <h3 class="text-lg mt-3">
-                      Labels from Bluesky (mod.bsky.app)
-                    </h3>
-                    <div class="overflow-x-auto">
-                      <table class="table table-xs">
-                        <template x-if="!loading && !error && labels.length !== 0">
-                          <thead>
-                            <tr>
-                              <th>created</th>
-                              <th>exp</th>
-                              <th>label</th>
-                            </tr>
-                          </thead>
-                        </template>
-                        <tbody>
-                        <template x-if="loading">
-                          <tr>
-                            <td>Loading&hellip;</td>
-                          </tr>
-                        </template>
-                        <template x-if="error">
-                          <tr>
-                            <td>Error: <span x-text="error"></span></td>
-                          </tr>
-                        </template>
-                        <template x-if="!loading && !error && labels.length === 0">
-                          <tr>
-                            <td class="text-sm">
-                              <em>no labels applied by mod.bsky.app</em>
-                            </td>
-                          </tr>
-                        </template>
-                        <template x-for="label in labels">
-                          <tr>
-                            <td>
-                              <code x-text="label.cts.split('.')[0]"></code>
-                            </td>
-                            <td>
-                              <code x-text="label.exp.split('.')[0]"></code>
-                            </td>
-
-                            <td>
-                                <span
-                                        x-text="label.val"
-                                        class="badge badge-sm badge-soft badge-warning"
-                                ></span>
-                            </td>
-
-                          </tr>
-                        </template>
                         </tbody>
                       </table>
                     </div>
