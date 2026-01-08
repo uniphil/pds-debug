@@ -90,6 +90,24 @@
         },
       ];
 
+      window.regionalModAccounts = [ // https://github.com/mary-ext/atproto-scraping?tab=readme-ov-file#bluesky-labelers
+        'https://mod-br.bsky.app',
+        'https://mod-de.bsky.app',
+        'https://mod-in.bsky.app',
+        'https://mod-ru.bsky.app',
+        'https://mod-tr.bsky.app',
+      ];
+
+      window.bskyAccountDeathLabels = {
+        ['needs-review']: 'Automated action, cleared by manual review from Bluesky moderation team. Your content can ve accessed via direct links on Bluesky, but invisible in feeds and replies to posts.',
+        ['!suspend']: 'Moderation action from Bluesky moderation team. Makes your content inaccessible on the Bluesky app.',
+        ['!takedown']: 'Moderation action from Bluesky moderation team. Makes your content inaccessible on the Bluesky app.',
+        ['!hide']: 'Almost always used with !takedown, makes your content inaccessible on the Bluesky app.',
+        // other labels shouldn't cause problems that make you think your pds is broken
+        // 'spam': just hides replies by default + makes your posts click-through
+        // 'intolerant', etc: similar to spam
+      };
+
       if (window.blehYeahReady) blehYeahReady();
       else window.yeahBlehIsReady = true;
     </script>
@@ -503,11 +521,13 @@
         Alpine.data('modLabels', did => ({
           loading: false,
           error: null,
+          regionalErrors: [],
           labels: [],
 
           async init() {
             this.loading = true;
             this.error = null;
+            this.regionalErrors = [];
             this.labels = [];
 
             const query = window.SimpleQuery('https://mod.bsky.app');
@@ -518,6 +538,12 @@
               });
               this.labels = res.labels ?? [];
               // TODO: handle cursors?
+
+              for (const region of window.regionalModAccounts) {
+                // intentionally no await, these come in async
+                // (...and could get messy if we start re-checking labels before they're done)
+                this.checkRegionLabels(region);
+              }
             } catch (e) {
               if (window.isXrpcErr(e)) {
                 this.error = e.error;
@@ -528,6 +554,23 @@
             }
             this.loading = false;
           },
+
+          async checkRegionLabels(labeler) {
+            const query = window.SimpleQuery(labeler);
+            try {
+              const res = await query('com.atproto.label.queryLabels', {
+                params: { uriPatterns: [did] },
+              });
+              if (res?.labels?.length > 0) this.labels.push(...res.labels);
+            } catch (e) {
+              if (window.isXrpcErr(e)) {
+                this.regionalErrors.push(`${labeler}: ${e.error}`);
+              } else {
+                this.regionalErrors.push(`Failed to check ${labeler} (see console)`);
+                console.error(`labeler: ${labeler}`, e);
+              }
+            }
+          }
         }));
 
         Alpine.data('pdsHistory', (did, currentPds) => ({
@@ -1015,8 +1058,8 @@
                         </template>
                         <template x-if="!loading && !error && labels.length === 0">
                           <tr>
-                            <td class="text-sm">
-                              <em>no labels applied by mod.bsky.app</em>
+                            <td class="text-xs">
+                              <em>No Bluesky moderation labels found</em>
                             </td>
                           </tr>
                         </template>
@@ -1043,13 +1086,31 @@
                                 <code
                                   x-text="label.val"
                                   class="badge badge-sm badge-soft"
-                                  :class="(label.neg || expired) ? 'badge-neutral line-through' : 'badge-warning'"
+                                  :class="(label.neg || expired)
+                                    ? 'badge-neutral line-through'
+                                    : !!window.bskyAccountDeathLabels[label.val]
+                                      ? 'badge-warning'
+                                      : 'badge-info'"
                                   :title="label.neg
                                     ? 'label negated'
                                     : expired
                                       ? 'label expired'
-                                      : ''"
+                                      : window.bskyAccountDeathLabels[label.val] ?? ''"
                                 ></code>
+                              </td>
+                              <td
+                                x-data="didToHandle(label.src)"
+                                x-intersect:enter.once="load"
+                              >
+                                <span x-show="loading">Loading&hellip;</span>
+                                <span x-show="error !== null" x-text="error"></span>
+                                <a
+                                  href="#"
+                                  class="link"
+                                  @click.prevent="goto(handle)"
+                                  x-show="handle !== null"
+                                  x-text="`@${handle}`"
+                                ></a>
                               </td>
                             </tr>
                           </template>
@@ -1057,6 +1118,12 @@
                       </tbody>
                     </table>
                   </div>
+                  <template x-for="error in regionalErrors">
+                    <p
+                      x-text="error"
+                      class="text-xs text-warning"
+                    ></p>
+                  </template>
                 </div>
 
                 <template x-if="did.startsWith('did:plc:')">

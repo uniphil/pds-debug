@@ -1,0 +1,13 @@
+some accounts that show things useful for testing the debugger
+
+
+Labels
+
+- did:plc:bnwrgnvwkg2n5cbvk4xodb3h | !hide                     | no other labels
+- did:plc:qhl3vg5tmwey536z2fil2lrh | !hide                     | from moderation-tr.bsky.app
+- did:plc:fsmaoqqnm6knqh4cuphb4jow | !hide, ~!takedown         | takedown negated
+- did:plc:iv3yod6zf2j4zaakq6qyiz46 | !takedown                 |
+- did:plc:nwrcwcrhpkgrqqvkg3lmaqky | ~needs-review, ~!takedown | both negated
+- did:plc:2tinwgqvf4asiwh36ii6ko7l | needs-review              | expired
+- did:plc:5plqrpw3x6j5wzaosssqams7 | spam                      | no other labels
+- did:plc:tqww7jdpqx5tb3w435fugmxi | intolerant                |
