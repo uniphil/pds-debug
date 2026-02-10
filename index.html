@@ -228,8 +228,10 @@
             }
 
             let query = window.SimpleQuery(pds);
+            let version;
             try {
               this.description = await query('com.atproto.server.describeServer');
+              version = this.description.version;
             } catch (e) {
               if (window.isXrpcErr(e)) {
                 this.error = e.error;
@@ -238,18 +240,17 @@
                 console.error(e);
               }
             }
-            let health
-            try {
-              health = await query('_health');
-              this.version = health.version;
-            } catch (e) {
-              if (window.isXrpcErr(e)) {
-                this.error = e.error;
-              } else {
-                this.error = 'Failed to reach (see console)';
-                console.error(e);
+            // fall back on /xrpc/_health for version if it's not in describeServer
+            if (!version) {
+              try {
+                const health = await query('_health');
+                version = health.version;
+              } catch (e) {
+                console.warn("could not get version from describeServer or _health");
               }
             }
+            this.version = version;
+
             let accountsRes;
             try {
               accountsRes = await query('com.atproto.sync.listRepos', {
